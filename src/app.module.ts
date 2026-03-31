@@ -4,6 +4,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { RedisModule } from '@songkeys/nestjs-redis';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { DocumentModule } from './document/document.module';
+import { ChatModule } from './chat/chat.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -27,6 +30,9 @@ import { AppService } from './app.service';
         },
       }),
     }),
+    DocumentModule,
+    ChatModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
