@@ -20,7 +20,7 @@ import { AdminModule } from './admin/admin.module';
       password: process.env.DB_PASSWORD,
       database: process.env.DB_DATABASE,
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
-      synchronize : true, // 개발-> true, 운영-> false
+      synchronize: true, // 개발 전용 — 운영에서는 false 로 바꾸고 마이그레이션 도구 사용
     }),
     
     AuthModule,
