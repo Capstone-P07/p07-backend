@@ -1,4 +1,5 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { DocChunk } from './doc-chunk.entity';
 
 @Entity('document')
 export class Document {
@@ -22,4 +23,7 @@ export class Document {
 
   @UpdateDateColumn({ type: 'timestamptz', nullable: true })
   updated_at: Date;
+
+  @OneToMany(() => DocChunk, (chunk) => chunk.document)
+  chunks: DocChunk[];
 }

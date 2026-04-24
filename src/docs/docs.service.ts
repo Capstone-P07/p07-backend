@@ -2,20 +2,18 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
-  OnModuleInit,
+  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Document } from './entities/document.entity';
 import { DocChunk } from './entities/doc-chunk.entity';
-import { parseHtml, parseUrl } from './parsers/html.parser';
-import { parsePdf } from './parsers/pdf.parser';
-import { chunkSections } from './parsers/chunker';
-import { CreateDocumentDto, IndexUrlDto } from './dto/create-document.dto';
+import { parseMarkdown } from './parsers/markdown.parser';
+import { chunkSections, type ParsedSection } from './parsers/chunker';
+import { CreateDocumentDto, CreateDocumentResponse } from './dto/create-document.dto';
 
 @Injectable()
-export class DocsService implements OnModuleInit {
+export class DocsService {
   private readonly logger = new Logger(DocsService.name);
 
   constructor(
@@ -26,147 +24,95 @@ export class DocsService implements OnModuleInit {
     private readonly dataSource: DataSource,
   ) {}
 
-  async onModuleInit() {
-    await this.setupFts();
-  }
-
-  /**
-   * PostgreSQL FTS 트리거와 GIN 인덱스를 설정합니다.
-   * 트리거: doc_chunks에 데이터가 INSERT/UPDATE될 때 fts_vector를 자동으로 계산합니다.
-   * GIN 인덱스: fts_vector 컬럼에 빠른 전문 검색을 위한 인덱스입니다.
-   */
-  private async setupFts() {
-    try {
-      // tsvector 자동 갱신 트리거 함수
-      await this.dataSource.query(`
-        CREATE OR REPLACE FUNCTION update_fts_vector()
-        RETURNS TRIGGER AS $$
-        BEGIN
-          NEW.fts_vector := to_tsvector('simple',
-            coalesce(NEW.heading, '') || ' ' || coalesce(NEW.content, ''));
-          RETURN NEW;
-        END;
-        $$ LANGUAGE plpgsql;
-      `);
-
-      // 트리거 등록 (INSERT 또는 heading/content UPDATE 시 실행)
-      await this.dataSource.query(`
-        DROP TRIGGER IF EXISTS trg_update_fts_vector ON doc_chunks;
-        CREATE TRIGGER trg_update_fts_vector
-        BEFORE INSERT OR UPDATE OF heading, content ON doc_chunks
-        FOR EACH ROW EXECUTE FUNCTION update_fts_vector();
-      `);
-
-      // GIN 인덱스 (전문 검색 성능을 위해)
-      await this.dataSource.query(`
-        CREATE INDEX IF NOT EXISTS idx_doc_chunks_fts ON doc_chunks USING GIN(fts_vector);
-      `);
-
-      this.logger.log('FTS 트리거 및 GIN 인덱스 설정 완료');
-    } catch (e) {
-      this.logger.warn('FTS 설정 실패 (테이블이 아직 없을 수 있음): ' + e.message);
-    }
-  }
-
-  /** 파일 업로드로 문서 색인 */
-  async indexFromFile(file: Express.Multer.File, dto: CreateDocumentDto): Promise<Document> {
-    const mime = file.mimetype;
-
-    let parsed: { title: string; sections: { heading: string | null; content: string }[] };
-
-    if (mime === 'application/pdf') {
-      parsed = await parsePdf(file.buffer);
-    } else if (mime === 'text/html' || file.originalname.endsWith('.html')) {
-      parsed = parseHtml(file.buffer.toString('utf-8'));
-    } else {
-      throw new BadRequestException('PDF 또는 HTML 파일만 지원합니다.');
+  async create(
+    dto: CreateDocumentDto,
+    file?: Express.Multer.File,
+  ): Promise<CreateDocumentResponse> {
+    if (dto.source === 'file') {
+      if (!file) {
+        throw new BadRequestException('source=file 일 때 file 필드는 필수입니다.');
+      }
+      const text = file.buffer.toString('utf-8');
+      const parsed = parseMarkdown(text);
+      return this.persist(dto.title ?? parsed.title, null, parsed.sections);
     }
 
-    return this.saveDocumentWithChunks(
-      dto.title || parsed.title,
-      dto.category ?? null,
-      null,
-      parsed.sections,
-    );
-  }
-
-  /** URL로 문서 색인 */
-  async indexFromUrl(dto: IndexUrlDto): Promise<Document> {
-    let parsed: { title: string; sections: { heading: string | null; content: string }[] };
-
-    try {
-      parsed = await parseUrl(dto.url);
-    } catch (e) {
-      throw new BadRequestException(`URL 파싱 실패: ${e.message}`);
+    if (dto.source === 'url') {
+      throw new NotImplementedException(
+        'URL 등록은 아직 지원되지 않습니다. Markdown 파일 업로드를 사용하세요.',
+      );
     }
 
-    return this.saveDocumentWithChunks(
-      dto.title || parsed.title,
-      dto.category ?? null,
-      dto.url,
-      parsed.sections,
-    );
+    throw new BadRequestException('source는 file 또는 url 이어야 합니다.');
   }
 
-  private async saveDocumentWithChunks(
+  async findAll() {
+    const rows = await this.documentRepo
+      .createQueryBuilder('d')
+      .loadRelationCountAndMap('d.chunkCount', 'd.chunks')
+      .orderBy('d.created_at', 'DESC')
+      .getMany();
+
+    return {
+      docs: rows.map((d) => ({
+        docId: d.id,
+        title: d.title,
+        source: d.source_url ? 'url' : 'file',
+        sourceValue: d.source_url ?? null,
+        chunkCount: (d as Document & { chunkCount?: number }).chunkCount ?? 0,
+        indexStatus: d.status,
+        updatedAt: d.updated_at ?? d.created_at,
+      })),
+    };
+  }
+
+  private async persist(
     title: string,
-    category: string | null,
     sourceUrl: string | null,
-    sections: { heading: string | null; content: string }[],
-  ): Promise<Document> {
-    const doc = this.documentRepo.create({
-      title,
-      category,
-      source_url: sourceUrl,
-      status: 'indexing',
-    });
-    await this.documentRepo.save(doc);
+    sections: ParsedSection[],
+  ): Promise<CreateDocumentResponse> {
+    const doc = await this.documentRepo.save(
+      this.documentRepo.create({
+        title,
+        source_url: sourceUrl,
+        status: 'indexing',
+      }),
+    );
 
     try {
       const chunks = chunkSections(sections);
-
       if (chunks.length === 0) {
-        throw new BadRequestException('파싱 결과에서 텍스트를 찾을 수 없습니다.');
+        throw new BadRequestException('문서에서 색인 가능한 텍스트를 찾지 못했습니다.');
       }
 
-      const chunkEntities = chunks.map((chunk) =>
-        this.chunkRepo.create({
-          doc_id: doc.id,
-          chunk_index: chunk.chunkIndex,
-          heading: chunk.heading,
-          content: chunk.content,
-        }),
-      );
+      await this.dataSource.transaction(async (m) => {
+        await m.insert(
+          DocChunk,
+          chunks.map((c) => ({
+            doc_id: doc.id,
+            chunk_index: c.chunkIndex,
+            heading: c.heading,
+            content: c.content,
+          })),
+        );
+        await m.update(Document, doc.id, { status: 'indexed' });
+      });
 
-      await this.chunkRepo.save(chunkEntities);
-
-      doc.status = 'indexed';
-      await this.documentRepo.save(doc);
-
-      this.logger.log(`문서 색인 완료: "${title}" (${chunks.length}개 청크)`);
-      return doc;
-    } catch (e) {
-      doc.status = 'failed';
-      await this.documentRepo.save(doc);
-      throw e;
+      this.logger.log(`문서 색인 완료: "${title}" (${chunks.length} chunks, docId=${doc.id})`);
+      return {
+        docId: doc.id,
+        title,
+        indexStatus: 'indexed',
+        message: '문서 등록이 완료되었습니다.',
+      };
+    } catch (err: unknown) {
+      try {
+        await this.documentRepo.update(doc.id, { status: 'failed' });
+      } catch {
+        // best-effort 상태 기록 — 여기서도 실패하면 로그만 남기고 원래 에러 재throw
+        this.logger.warn(`문서 상태를 failed로 갱신 실패 (docId=${doc.id})`);
+      }
+      throw err;
     }
-  }
-
-  async findAll(): Promise<Document[]> {
-    return this.documentRepo.find({ order: { created_at: 'DESC' } });
-  }
-
-  async findOne(id: number): Promise<Document> {
-    const doc = await this.documentRepo.findOne({ where: { id } });
-    if (!doc) throw new NotFoundException('문서를 찾을 수 없습니다.');
-    return doc;
-  }
-
-  async getChunks(docId: number): Promise<DocChunk[]> {
-    await this.findOne(docId); // 문서 존재 확인
-    return this.chunkRepo.find({
-      where: { doc_id: docId },
-      order: { chunk_index: 'ASC' },
-    });
   }
 }

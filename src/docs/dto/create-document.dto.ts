@@ -1,26 +1,24 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUrl, MaxLength, MinLength } from 'class-validator';
 
 export class CreateDocumentDto {
-  @IsOptional()
-  @IsString()
-  title?: string;
+  @IsIn(['file', 'url'], { message: 'source는 file 또는 url 이어야 합니다.' })
+  source: 'file' | 'url';
 
   @IsOptional()
   @IsString()
-  @MaxLength(20)
-  category?: string;
+  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] })
+  url?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  title?: string;
 }
 
-export class IndexUrlDto {
-  @IsString()
-  url: string;
-
-  @IsOptional()
-  @IsString()
-  title?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20)
-  category?: string;
+export interface CreateDocumentResponse {
+  docId: number;
+  title: string;
+  indexStatus: 'pending' | 'indexing' | 'indexed' | 'failed';
+  message: string;
 }
