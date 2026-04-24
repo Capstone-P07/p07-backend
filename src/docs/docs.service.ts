@@ -90,17 +90,23 @@ export class DocsService {
     };
   }
 
-  async findChunks(id: number) {
+  async findChunks(id: number, opts: { includeFts?: boolean } = {}) {
     const exists = await this.documentRepo.exist({ where: { id } });
     if (!exists) {
       throw new NotFoundException(`Document ${id} not found`);
     }
 
-    const chunks = await this.chunkRepo.find({
-      where: { doc_id: id },
-      order: { chunk_index: 'ASC' },
-      select: ['id', 'chunk_index', 'heading', 'content'],
-    });
+    const qb = this.chunkRepo
+      .createQueryBuilder('c')
+      .select(['c.id', 'c.chunk_index', 'c.heading', 'c.content'])
+      .where('c.doc_id = :id', { id })
+      .orderBy('c.chunk_index', 'ASC');
+
+    if (opts.includeFts) {
+      qb.addSelect('c.fts_vector');
+    }
+
+    const chunks = await qb.getMany();
 
     return {
       docId: id,
@@ -109,6 +115,7 @@ export class DocsService {
         chunkIndex: c.chunk_index,
         heading: c.heading,
         content: c.content,
+        ...(opts.includeFts ? { ftsVector: c.fts_vector } : {}),
       })),
     };
   }

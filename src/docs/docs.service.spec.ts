@@ -29,7 +29,7 @@ describe('DocsService', () => {
     createQueryBuilder: jest.Mock;
     exist: jest.Mock;
   };
-  let chunkRepo: { save: jest.Mock; find: jest.Mock };
+  let chunkRepo: { save: jest.Mock; createQueryBuilder: jest.Mock };
   let dataSource: { transaction: jest.Mock };
   let txManager: { insert: jest.Mock; update: jest.Mock };
 
@@ -42,7 +42,7 @@ describe('DocsService', () => {
       createQueryBuilder: jest.fn(),
       exist: jest.fn(),
     };
-    chunkRepo = { save: jest.fn(), find: jest.fn() };
+    chunkRepo = { save: jest.fn(), createQueryBuilder: jest.fn() };
     dataSource = {
       transaction: jest.fn(async (cb: (m: typeof txManager) => Promise<unknown>) => cb(txManager)),
     };
@@ -137,21 +137,29 @@ describe('DocsService', () => {
   });
 
   describe('findChunks', () => {
-    it('happy path: chunks 배열 반환, chunk_index ASC', async () => {
+    const makeQbMock = (rows: unknown[]) => ({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(rows),
+    });
+
+    it('기본: fts_vector 없이 청크 배열 반환', async () => {
       documentRepo.exist.mockResolvedValue(true);
-      chunkRepo.find.mockResolvedValue([
+      const qb = makeQbMock([
         { id: 6, chunk_index: 0, heading: '백로그 > 개요', content: '본문1' },
         { id: 7, chunk_index: 1, heading: '백로그 > 생성', content: '본문2' },
       ]);
+      chunkRepo.createQueryBuilder.mockReturnValue(qb);
 
       const res = await service.findChunks(2);
 
       expect(documentRepo.exist).toHaveBeenCalledWith({ where: { id: 2 } });
-      expect(chunkRepo.find).toHaveBeenCalledWith({
-        where: { doc_id: 2 },
-        order: { chunk_index: 'ASC' },
-        select: ['id', 'chunk_index', 'heading', 'content'],
-      });
+      expect(qb.select).toHaveBeenCalledWith(['c.id', 'c.chunk_index', 'c.heading', 'c.content']);
+      expect(qb.where).toHaveBeenCalledWith('c.doc_id = :id', { id: 2 });
+      expect(qb.orderBy).toHaveBeenCalledWith('c.chunk_index', 'ASC');
+      expect(qb.addSelect).not.toHaveBeenCalled();
       expect(res).toEqual({
         docId: 2,
         chunks: [
@@ -161,11 +169,30 @@ describe('DocsService', () => {
       });
     });
 
-    it('없는 docId → NotFoundException (find 호출 전)', async () => {
+    it('includeFts=true: addSelect 호출 + 응답에 ftsVector 포함', async () => {
+      documentRepo.exist.mockResolvedValue(true);
+      const qb = makeQbMock([
+        { id: 6, chunk_index: 0, heading: '백로그 > 개요', content: '본문1', fts_vector: "'개요':1 '백로그':2" },
+      ]);
+      chunkRepo.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await service.findChunks(2, { includeFts: true });
+
+      expect(qb.addSelect).toHaveBeenCalledWith('c.fts_vector');
+      expect(res.chunks[0]).toEqual({
+        chunkId: 6,
+        chunkIndex: 0,
+        heading: '백로그 > 개요',
+        content: '본문1',
+        ftsVector: "'개요':1 '백로그':2",
+      });
+    });
+
+    it('없는 docId → NotFoundException (QueryBuilder 호출 전)', async () => {
       documentRepo.exist.mockResolvedValue(false);
 
       await expect(service.findChunks(999)).rejects.toThrow(NotFoundException);
-      expect(chunkRepo.find).not.toHaveBeenCalled();
+      expect(chunkRepo.createQueryBuilder).not.toHaveBeenCalled();
     });
   });
 });

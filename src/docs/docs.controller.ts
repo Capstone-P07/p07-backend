@@ -2,10 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   Param,
+  ParseBoolPipe,
   ParseIntPipe,
   Post,
+  Query,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -67,10 +70,14 @@ export class DocsController {
 
   /**
    * GET /docs/:id/chunks — 문서의 청크 목록 (스펙 §5.4).
+   * `?includeFts=true` 로 mecab-ko 토큰화 결과(`ftsVector`) 도 포함 (디버깅용).
    */
   @Get(':id/chunks')
-  async findChunks(@Param('id', ParseIntPipe) id: number) {
-    const data = await this.docsService.findChunks(id);
+  async findChunks(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('includeFts', new DefaultValuePipe(false), ParseBoolPipe) includeFts: boolean,
+  ) {
+    const data = await this.docsService.findChunks(id, { includeFts });
     return { success: true, data, error: null };
   }
 }
