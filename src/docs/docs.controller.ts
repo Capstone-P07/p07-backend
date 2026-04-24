@@ -3,6 +3,8 @@ import {
   Body,
   Controller,
   Get,
+  Param,
+  ParseIntPipe,
   Post,
   UploadedFile,
   UseInterceptors,
@@ -51,6 +53,24 @@ export class DocsController {
   @Get()
   async findAll() {
     const data = await this.docsService.findAll();
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /docs/:id — 문서 단건 상세 (스펙 §5.3).
+   */
+  @Get(':id')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.docsService.findOne(id);
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /docs/:id/chunks — 문서의 청크 목록 (스펙 §5.4).
+   */
+  @Get(':id/chunks')
+  async findChunks(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.docsService.findChunks(id);
     return { success: true, data, error: null };
   }
 }

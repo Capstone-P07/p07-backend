@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -62,6 +63,52 @@ export class DocsService {
         chunkCount: (d as Document & { chunkCount?: number }).chunkCount ?? 0,
         indexStatus: d.status,
         updatedAt: d.updated_at ?? d.created_at,
+      })),
+    };
+  }
+
+  async findOne(id: number) {
+    const doc = await this.documentRepo
+      .createQueryBuilder('d')
+      .loadRelationCountAndMap('d.chunkCount', 'd.chunks')
+      .where('d.id = :id', { id })
+      .getOne();
+
+    if (!doc) {
+      throw new NotFoundException(`Document ${id} not found`);
+    }
+
+    return {
+      docId: doc.id,
+      title: doc.title,
+      source: doc.source_url ? 'url' : 'file',
+      sourceValue: doc.source_url ?? null,
+      chunkCount: (doc as Document & { chunkCount?: number }).chunkCount ?? 0,
+      indexStatus: doc.status,
+      createdAt: doc.created_at,
+      updatedAt: doc.updated_at ?? doc.created_at,
+    };
+  }
+
+  async findChunks(id: number) {
+    const exists = await this.documentRepo.exist({ where: { id } });
+    if (!exists) {
+      throw new NotFoundException(`Document ${id} not found`);
+    }
+
+    const chunks = await this.chunkRepo.find({
+      where: { doc_id: id },
+      order: { chunk_index: 'ASC' },
+      select: ['id', 'chunk_index', 'heading', 'content'],
+    });
+
+    return {
+      docId: id,
+      chunks: chunks.map((c) => ({
+        chunkId: c.id,
+        chunkIndex: c.chunk_index,
+        heading: c.heading,
+        content: c.content,
       })),
     };
   }

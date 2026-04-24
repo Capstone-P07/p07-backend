@@ -29,7 +29,7 @@ Run a single test: `npm test -- auth.service.spec.ts` or `npm test -- -t "patter
 | Module | State | Responsibility |
 |--------|-------|----------------|
 | `auth/` | **Implemented** | signup, login, getMe, changePassword. JWT strategy + guard. |
-| `docs/` | **Partially implemented** | `POST /docs` (Markdown 업로드), `GET /docs`. 파서(marked 기반) + 경계 인식 청커 + mecab-ko 트리거 연동. URL ingest 는 501 NotImplemented. |
+| `docs/` | **Partially implemented** | `POST /docs` (Markdown 업로드), `GET /docs`, `GET /docs/:id`, `GET /docs/:id/chunks`. 파서(marked 기반) + 경계 인식 청커 + mecab-ko 트리거 연동. URL ingest 는 501 NotImplemented. |
 | `chat/`, `search/`, `admin/` | **Stubs** | Controllers/services skeletal, entities defined |
 
 **Entity locations:** each module owns `entities/*.entity.ts`. TypeORM auto-globs via `__dirname + '/**/*.entity{.ts,.js}'` in `app.module.ts:18-22`.

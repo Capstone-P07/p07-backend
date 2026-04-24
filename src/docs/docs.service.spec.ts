@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, NotImplementedException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, NotImplementedException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { DocsService } from './docs.service';
 import { Document } from './entities/document.entity';
@@ -22,8 +22,14 @@ const makeFile = (content: string): Express.Multer.File =>
 
 describe('DocsService', () => {
   let service: DocsService;
-  let documentRepo: { save: jest.Mock; create: jest.Mock; update: jest.Mock; createQueryBuilder: jest.Mock };
-  let chunkRepo: { save: jest.Mock };
+  let documentRepo: {
+    save: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    createQueryBuilder: jest.Mock;
+    exist: jest.Mock;
+  };
+  let chunkRepo: { save: jest.Mock; find: jest.Mock };
   let dataSource: { transaction: jest.Mock };
   let txManager: { insert: jest.Mock; update: jest.Mock };
 
@@ -34,8 +40,9 @@ describe('DocsService', () => {
       create: jest.fn((x) => x),
       update: jest.fn(),
       createQueryBuilder: jest.fn(),
+      exist: jest.fn(),
     };
-    chunkRepo = { save: jest.fn() };
+    chunkRepo = { save: jest.fn(), find: jest.fn() };
     dataSource = {
       transaction: jest.fn(async (cb: (m: typeof txManager) => Promise<unknown>) => cb(txManager)),
     };
@@ -83,5 +90,82 @@ describe('DocsService', () => {
 
     await expect(service.create({ source: 'file' }, makeFile(md))).rejects.toThrow(BadRequestException);
     expect(documentRepo.update).toHaveBeenCalledWith(7, { status: 'failed' });
+  });
+
+  describe('findOne', () => {
+    it('happy path: 응답에 docId/title/source/chunkCount/indexStatus 매핑', async () => {
+      const qb = {
+        loadRelationCountAndMap: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue({
+          id: 2,
+          title: '12_백로그',
+          source_url: null,
+          status: 'indexed',
+          created_at: new Date('2026-04-24T06:00:00Z'),
+          updated_at: new Date('2026-04-24T06:30:00Z'),
+          chunkCount: 8,
+        }),
+      };
+      documentRepo.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await service.findOne(2);
+
+      expect(qb.where).toHaveBeenCalledWith('d.id = :id', { id: 2 });
+      expect(res).toEqual({
+        docId: 2,
+        title: '12_백로그',
+        source: 'file',
+        sourceValue: null,
+        chunkCount: 8,
+        indexStatus: 'indexed',
+        createdAt: new Date('2026-04-24T06:00:00Z'),
+        updatedAt: new Date('2026-04-24T06:30:00Z'),
+      });
+    });
+
+    it('없는 docId → NotFoundException', async () => {
+      const qb = {
+        loadRelationCountAndMap: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      };
+      documentRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findChunks', () => {
+    it('happy path: chunks 배열 반환, chunk_index ASC', async () => {
+      documentRepo.exist.mockResolvedValue(true);
+      chunkRepo.find.mockResolvedValue([
+        { id: 6, chunk_index: 0, heading: '백로그 > 개요', content: '본문1' },
+        { id: 7, chunk_index: 1, heading: '백로그 > 생성', content: '본문2' },
+      ]);
+
+      const res = await service.findChunks(2);
+
+      expect(documentRepo.exist).toHaveBeenCalledWith({ where: { id: 2 } });
+      expect(chunkRepo.find).toHaveBeenCalledWith({
+        where: { doc_id: 2 },
+        order: { chunk_index: 'ASC' },
+        select: ['id', 'chunk_index', 'heading', 'content'],
+      });
+      expect(res).toEqual({
+        docId: 2,
+        chunks: [
+          { chunkId: 6, chunkIndex: 0, heading: '백로그 > 개요', content: '본문1' },
+          { chunkId: 7, chunkIndex: 1, heading: '백로그 > 생성', content: '본문2' },
+        ],
+      });
+    });
+
+    it('없는 docId → NotFoundException (find 호출 전)', async () => {
+      documentRepo.exist.mockResolvedValue(false);
+
+      await expect(service.findChunks(999)).rejects.toThrow(NotFoundException);
+      expect(chunkRepo.find).not.toHaveBeenCalled();
+    });
   });
 });
