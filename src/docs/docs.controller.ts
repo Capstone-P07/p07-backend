@@ -3,11 +3,13 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
   Param,
   ParseBoolPipe,
   ParseIntPipe,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseInterceptors,
@@ -15,6 +17,28 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocsService } from './docs.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { UpdateDocumentDto } from './dto/update-document.dto';
+
+// POST /docs 와 PUT /docs/:id 가 공유하는 Markdown 업로드 정책
+const MARKDOWN_UPLOAD_OPTIONS = {
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (
+    _req: unknown,
+    file: Express.Multer.File,
+    cb: (error: Error | null, acceptFile: boolean) => void,
+  ) => {
+    const name = file.originalname.toLowerCase();
+    const ok =
+      name.endsWith('.md') ||
+      file.mimetype === 'text/markdown' ||
+      file.mimetype === 'text/plain';
+    if (ok) {
+      cb(null, true);
+    } else {
+      cb(new BadRequestException('Markdown(.md) 파일만 업로드 가능합니다.'), false);
+    }
+  },
+};
 
 @Controller('docs')
 export class DocsController {
@@ -25,23 +49,7 @@ export class DocsController {
    * 필드: source ("file" | "url"), file? (Markdown), url?, title?
    */
   @Post()
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 5 * 1024 * 1024 },
-      fileFilter: (_req, file, cb) => {
-        const name = file.originalname.toLowerCase();
-        const ok =
-          name.endsWith('.md') ||
-          file.mimetype === 'text/markdown' ||
-          file.mimetype === 'text/plain';
-        if (ok) {
-          cb(null, true);
-        } else {
-          cb(new BadRequestException('Markdown(.md) 파일만 업로드 가능합니다.'), false);
-        }
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', MARKDOWN_UPLOAD_OPTIONS))
   async create(
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: CreateDocumentDto,
@@ -78,6 +86,39 @@ export class DocsController {
     @Query('includeFts', new DefaultValuePipe(false), ParseBoolPipe) includeFts: boolean,
   ) {
     const data = await this.docsService.findChunks(id, { includeFts });
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * PUT /docs/:id — multipart/form-data 로 문서 수정.
+   * file 동봉 시 청크 전부 교체 + 재색인. 미동봉 시 title 만 갱신.
+   */
+  @Put(':id')
+  @UseInterceptors(FileInterceptor('file', MARKDOWN_UPLOAD_OPTIONS))
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body() dto: UpdateDocumentDto,
+  ) {
+    const data = await this.docsService.update(id, dto, file);
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * DELETE /docs/:id — 문서 + 관련 청크 삭제 (CASCADE).
+   */
+  @Delete(':id')
+  async remove(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.docsService.remove(id);
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * POST /docs/:id/reindex — 수동 재색인 (FTS 트리거 재실행).
+   */
+  @Post(':id/reindex')
+  async reindex(@Param('id', ParseIntPipe) id: number) {
+    const data = await this.docsService.reindex(id);
     return { success: true, data, error: null };
   }
 }
