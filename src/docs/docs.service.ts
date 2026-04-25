@@ -265,7 +265,10 @@ export class DocsService {
     try {
       const chunks = chunkSections(sections);
       if (chunks.length === 0) {
-        throw new BadRequestException('문서에서 색인 가능한 텍스트를 찾지 못했습니다.');
+        // chunkSections 의 heading-only fallback 까지 통과 못한 케이스: 본문도 없고 heading 도 없는 빈 문서.
+        throw new BadRequestException(
+          '문서가 비어 있어 색인할 수 없습니다. 제목(#)이나 본문이 있는 Markdown을 업로드하세요.',
+        );
       }
 
       await this.dataSource.transaction(async (m) => {
