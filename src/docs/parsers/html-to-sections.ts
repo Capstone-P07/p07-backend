@@ -12,7 +12,7 @@
 
 import * as cheerio from 'cheerio';
 import type { Cheerio, CheerioAPI } from 'cheerio';
-import type { Element } from 'domhandler';
+import type { AnyNode, Element } from 'domhandler';
 import type { ParsedSection } from './chunker';
 
 export interface ParsedDocument {
@@ -22,7 +22,9 @@ export interface ParsedDocument {
 
 export function htmlToSections(html: string): ParsedDocument {
   const $ = cheerio.load(html);
-  const root = $('body').children().length > 0 ? $('body') : $.root();
+  // body 가 비어 있으면 root() 를 사용. children().each 의 타입 통일을 위해 AnyNode 컨테이너로 본다.
+  const rootContainer: Cheerio<AnyNode> =
+    $('body').children().length > 0 ? ($('body') as Cheerio<AnyNode>) : ($.root() as Cheerio<AnyNode>);
 
   let title = '';
   let h1: string | null = null;
@@ -42,7 +44,7 @@ export function htmlToSections(html: string): ParsedDocument {
   };
 
   // top-level 만 walk. 안의 div/section 같은 wrapper 는 별도로 추출 후 buf 에 push.
-  root.children().each((_, el) => {
+  rootContainer.children().each((_, el) => {
     if (el.type !== 'tag') return;
     const $el = $(el);
     const tag = el.tagName.toLowerCase();
