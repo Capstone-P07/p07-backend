@@ -12,6 +12,12 @@ import { DocChunk } from './entities/doc-chunk.entity';
 import { parseMarkdown } from './parsers/markdown.parser';
 import { chunkSections, type ParsedSection } from './parsers/chunker';
 import { CreateDocumentDto, CreateDocumentResponse } from './dto/create-document.dto';
+import {
+  DeleteDocumentResponse,
+  ReindexDocumentResponse,
+  UpdateDocumentDto,
+  UpdateDocumentResponse,
+} from './dto/update-document.dto';
 
 @Injectable()
 export class DocsService {
@@ -90,6 +96,129 @@ export class DocsService {
     };
   }
 
+  async update(
+    id: number,
+    dto: UpdateDocumentDto,
+    file?: Express.Multer.File,
+  ): Promise<UpdateDocumentResponse> {
+    const doc = await this.documentRepo.findOne({ where: { id } });
+    if (!doc) {
+      throw new NotFoundException(`Document ${id} not found`);
+    }
+
+    // 파일 교체가 없으면 메타데이터(title)만 갱신
+    if (!file) {
+      if (dto.title === undefined) {
+        return {
+          docId: doc.id,
+          title: doc.title,
+          indexStatus: doc.status,
+          message: '변경 사항이 없습니다.',
+        };
+      }
+      await this.documentRepo.update(id, { title: dto.title, updated_at: new Date() });
+      return {
+        docId: id,
+        title: dto.title,
+        indexStatus: doc.status,
+        message: '문서 제목이 수정되었습니다.',
+      };
+    }
+
+    // 파일 교체 → 기존 청크 삭제 + 재파싱/재청킹
+    const text = file.buffer.toString('utf-8');
+    const parsed = parseMarkdown(text);
+    const chunks = chunkSections(parsed.sections);
+    if (chunks.length === 0) {
+      throw new BadRequestException('문서에서 색인 가능한 텍스트를 찾지 못했습니다.');
+    }
+
+    const newTitle = dto.title ?? parsed.title ?? doc.title;
+    await this.documentRepo.update(id, { status: 'indexing', updated_at: new Date() });
+
+    try {
+      await this.dataSource.transaction(async (m) => {
+        await m.delete(DocChunk, { doc_id: id });
+        await m.insert(
+          DocChunk,
+          chunks.map((c) => ({
+            doc_id: id,
+            chunk_index: c.chunkIndex,
+            heading: c.heading,
+            content: c.content,
+          })),
+        );
+        await m.update(Document, id, {
+          title: newTitle,
+          status: 'indexed',
+          updated_at: new Date(),
+        });
+      });
+
+      this.logger.log(`문서 재색인 완료: "${newTitle}" (${chunks.length} chunks, docId=${id})`);
+      return {
+        docId: id,
+        title: newTitle,
+        indexStatus: 'indexed',
+        message: '문서 수정이 완료되었습니다. 재색인이 진행 중입니다.',
+      };
+    } catch (err: unknown) {
+      try {
+        await this.documentRepo.update(id, { status: 'failed' });
+      } catch {
+        this.logger.warn(`문서 상태를 failed로 갱신 실패 (docId=${id})`);
+      }
+      throw err;
+    }
+  }
+
+  async remove(id: number): Promise<DeleteDocumentResponse> {
+    const exists = await this.documentRepo.exist({ where: { id } });
+    if (!exists) {
+      throw new NotFoundException(`Document ${id} not found`);
+    }
+
+    // ON DELETE CASCADE 로 doc_chunks 도 함께 삭제됨 (init.sql)
+    const deletedChunks = await this.chunkRepo.count({ where: { doc_id: id } });
+    await this.documentRepo.delete(id);
+
+    this.logger.log(`문서 삭제 완료: docId=${id}, ${deletedChunks} chunks`);
+    return {
+      docId: id,
+      deletedChunks,
+      message: '문서 및 관련 색인이 삭제되었습니다.',
+    };
+  }
+
+  async reindex(id: number): Promise<ReindexDocumentResponse> {
+    const exists = await this.documentRepo.exist({ where: { id } });
+    if (!exists) {
+      throw new NotFoundException(`Document ${id} not found`);
+    }
+
+    await this.documentRepo.update(id, { status: 'indexing', updated_at: new Date() });
+
+    try {
+      // content 자체는 동일하지만 UPDATE 가 mecab-ko 트리거 (`doc_chunks_fts_update`) 를 다시 발화시켜
+      // fts_vector 가 재생성된다. 청킹 룰 변경엔 의미 없고 FTS 설정 변경 시 인덱스 새로고침 용도.
+      await this.dataSource.query(
+        'UPDATE doc_chunks SET content = content WHERE doc_id = $1',
+        [id],
+      );
+      await this.documentRepo.update(id, { status: 'indexed', updated_at: new Date() });
+
+      this.logger.log(`문서 재색인 (FTS 트리거 재실행) 완료: docId=${id}`);
+      return { docId: id, indexStatus: 'indexed' };
+    } catch (err: unknown) {
+      try {
+        await this.documentRepo.update(id, { status: 'failed' });
+      } catch {
+        this.logger.warn(`문서 상태를 failed로 갱신 실패 (docId=${id})`);
+      }
+      throw err;
+    }
+  }
+
   async findChunks(id: number, opts: { includeFts?: boolean } = {}) {
     const exists = await this.documentRepo.exist({ where: { id } });
     if (!exists) {
@@ -136,7 +265,10 @@ export class DocsService {
     try {
       const chunks = chunkSections(sections);
       if (chunks.length === 0) {
-        throw new BadRequestException('문서에서 색인 가능한 텍스트를 찾지 못했습니다.');
+        // chunkSections 의 heading-only fallback 까지 통과 못한 케이스: 본문도 없고 heading 도 없는 빈 문서.
+        throw new BadRequestException(
+          '문서가 비어 있어 색인할 수 없습니다. 제목(#)이나 본문이 있는 Markdown을 업로드하세요.',
+        );
       }
 
       await this.dataSource.transaction(async (m) => {

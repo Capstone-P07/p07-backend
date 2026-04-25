@@ -1,34 +1,8 @@
-import { parseMarkdown, stripGitBookSyntax } from './markdown.parser';
+import { parseMarkdown } from './markdown.parser';
 
-describe('stripGitBookSyntax', () => {
-  it('hint 내부 텍스트는 유지', () => {
-    const out = stripGitBookSyntax('{% hint style="danger" %}경고 메시지{% endhint %}');
-    expect(out).toContain('경고 메시지');
-    expect(out).not.toContain('{%');
-  });
-
-  it('figure 블록 제거', () => {
-    const out = stripGitBookSyntax('<figure><img src="x.png" alt=""><figcaption></figcaption></figure>\n\n본문');
-    expect(out).not.toContain('<figure>');
-    expect(out).toContain('본문');
-  });
-
-  it('cards 테이블 제거', () => {
-    const out = stripGitBookSyntax('<table data-view="cards"><tr><td>카드</td></tr></table>\n\n나머지');
-    expect(out).not.toContain('data-view="cards"');
-    expect(out).toContain('나머지');
-  });
-
-  it('\\[ 이스케이프 해제', () => {
-    const out = stripGitBookSyntax('\\[워크스페이스 > 멤버]');
-    expect(out).toBe('[워크스페이스 > 멤버]');
-  });
-
-  it('tab title을 h4로 변환', () => {
-    const out = stripGitBookSyntax('{% tab title="옵션A" %}내용{% endtab %}');
-    expect(out).toContain('#### 옵션A');
-  });
-});
+// stripGitBookSyntax 의 단위 동작은 gitbook-normalize.spec.ts 에서, 섹션 분리 / table /
+// figure 등 cheerio 추출은 html-to-sections.spec.ts 에서 cover 한다. 여기서는 두 단계가
+// 합쳐진 parseMarkdown 진입점의 회귀만 본다 (이전 버전의 동작 보존).
 
 describe('parseMarkdown', () => {
   it('# 제목 → 문서 title, ## 섹션 → 섹션 분리', () => {
@@ -62,7 +36,6 @@ describe('parseMarkdown', () => {
     const raw =
       '# 멤버\n\n## 권한\n\n워크스페이스의 모든 사용자는 권한을 가집니다.\n\n#### 관리자\n\n관리자 설명.\n\n#### 멤버\n\n멤버 설명.';
     const { sections } = parseMarkdown(raw);
-    // 권한 본문, 관리자, 멤버 — 3개 섹션
     expect(sections.length).toBeGreaterThanOrEqual(3);
     const headings = sections.map((s) => s.heading);
     expect(headings).toContain('멤버 > 권한 > 관리자');

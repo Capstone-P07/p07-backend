@@ -17,7 +17,7 @@ export interface ChunkOptions {
   minChars?: number;
 }
 
-const DEFAULTS = { maxChars: 800, overlap: 80, minChars: 50 } as const;
+const DEFAULTS = { maxChars: 800, overlap: 80, minChars: 30 } as const;
 
 export function chunkSections(sections: ParsedSection[], opts: ChunkOptions = {}): TextChunk[] {
   const maxChars = opts.maxChars ?? DEFAULTS.maxChars;
@@ -38,6 +38,22 @@ export function chunkSections(sections: ParsedSection[], opts: ChunkOptions = {}
 
     for (const piece of splitLongContent(content, maxChars, overlap)) {
       chunks.push({ heading: section.heading, content: piece, chunkIndex: index++ });
+    }
+  }
+
+  // Heading-only fallback: 본문이 모두 minChars 미만이거나 비어있는 페이지(예: cards 만 있는
+  // 인덱스 페이지) 도 검색에는 잡히도록 heading 텍스트로 청크 1개를 만든다. heading 자체가
+  // 없으면 색인할 게 없으니 빈 배열 반환.
+  if (chunks.length === 0) {
+    const headings = sections
+      .map((s) => s.heading)
+      .filter((h): h is string => !!h && h.trim().length > 0);
+    if (headings.length > 0) {
+      chunks.push({
+        heading: headings[0],
+        content: headings.join('\n'),
+        chunkIndex: 0,
+      });
     }
   }
 

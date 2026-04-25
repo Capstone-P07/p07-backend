@@ -16,8 +16,31 @@ describe('chunkSections', () => {
     expect(chunks[0].content).toContain('짧은 본문');
   });
 
-  it('minChars 미만이면 drop (기본 minChars=50)', () => {
-    const chunks = chunkSections([section('x'.repeat(10))]);
+  it('minChars 미만이고 heading 도 없으면 drop', () => {
+    // heading 이 있으면 fallback 으로 chunk 가 1개 생기므로 의도적으로 null.
+    const chunks = chunkSections([
+      { h1: null, h2: null, heading: null, content: 'x'.repeat(10) },
+    ]);
+    expect(chunks).toHaveLength(0);
+  });
+
+  it('모든 섹션 본문이 minChars 미만이어도 heading 이 있으면 heading-only fallback chunk 1개', () => {
+    const chunks = chunkSections([
+      { h1: 'A', h2: '개요', heading: 'A > 개요', content: '짧음' },
+      { h1: 'A', h2: '본문', heading: 'A > 본문', content: '' },
+    ]);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].chunkIndex).toBe(0);
+    expect(chunks[0].heading).toBe('A > 개요');
+    // fallback content 는 heading 들을 합쳐 색인 키워드 회수
+    expect(chunks[0].content).toContain('A > 개요');
+    expect(chunks[0].content).toContain('A > 본문');
+  });
+
+  it('heading 도 본문도 모두 비어 있으면 빈 chunks (색인 거부)', () => {
+    const chunks = chunkSections([
+      { h1: null, h2: null, heading: null, content: '' },
+    ]);
     expect(chunks).toHaveLength(0);
   });
 
