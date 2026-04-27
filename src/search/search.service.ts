@@ -5,12 +5,15 @@ import { Repository } from 'typeorm';
 import { DataSource } from 'typeorm';
 import { SearchQueryDto } from './dto/search-query.dto';
 import { SearchLog } from './entities/search-log.entity';
+import { InjectRedis } from '@nestjs-modules/ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class SearchService {
   constructor(
     @InjectDataSource() private dataSource: DataSource,
-    @InjectRepository(SearchLog) private searchLogRepo: Repository<SearchLog>, // 추가
+    @InjectRepository(SearchLog) private searchLogRepo: Repository<SearchLog>,
+    @InjectRedis() private redis: Redis,
   ) {}
 
   private readonly FTS_LANGUAGE = 'korean';
@@ -18,6 +21,19 @@ export class SearchService {
   async search(dto: SearchQueryDto) {
     const startTime = Date.now();
     const { query, topK = 5, sessionId } = dto;
+
+    //캐시 체크 -> 캐시 히트시 cached:true로 리턴
+    const cacheKey = `search:${query}:top${topK}`;
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      await this.searchLogRepo.save({
+        sessionId: sessionId ?? null,
+        query,
+        matchedChunksJson: JSON.parse(cached).data.chunks,
+        durationMs: 0,
+      });
+      return { ...JSON.parse(cached), data: { ...JSON.parse(cached).data, cached: true } };
+    }
 
     //키워드 추출 --> to_tsquery 파라미터로 사용
     const keywords = query
@@ -75,6 +91,9 @@ export class SearchService {
         elapsedMs: durationMs,
         },
     };
+
+    //캐시 저장
+    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 600);
 
     return result;
 

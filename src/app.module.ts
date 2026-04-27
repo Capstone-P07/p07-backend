@@ -8,6 +8,7 @@ import { ChatModule } from './chat/chat.module';
 import { SearchModule } from './search/search.module';
 import { DocsModule } from './docs/docs.module';
 import { AdminModule } from './admin/admin.module';
+import { RedisModule } from '@nestjs-modules/ioredis';
 
 @Module({
   imports: [
@@ -22,6 +23,10 @@ import { AdminModule } from './admin/admin.module';
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       synchronize: true, // 개발 전용 — 운영에서는 false 로 바꾸고 마이그레이션 도구 사용
     }),
+    RedisModule.forRoot({
+      type: 'single',
+      url: process.env.REDIS_URL ?? 'redis://localhost:6379',
+    }),  
     
     AuthModule,
     ChatModule,
