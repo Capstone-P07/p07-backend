@@ -6,8 +6,8 @@ export class Session {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid', nullable: true })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
+  userId: string;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
@@ -16,9 +16,9 @@ export class Session {
   @Column({ type: 'text', nullable: true })
   title: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 
-  @Column({ type: 'timestamptz', nullable: true })
-  expires_at: Date;
+  @Column({ name: 'expires_at', type: 'timestamptz', nullable: true })
+  expiresAt: Date;
 }

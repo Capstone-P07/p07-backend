@@ -1,5 +1,5 @@
 import { Column, CreateDateColumn, Entity, ManyToOne, JoinColumn, PrimaryGeneratedColumn } from 'typeorm';
-import { Session } from './session.entity';
+import { Session } from '../../sessions/entities/session.entity';
 import { User } from '../../auth/entities/user.entity';
 
 @Entity('chat_logs')

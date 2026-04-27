@@ -8,6 +8,7 @@ import { ChatModule } from './chat/chat.module';
 import { SearchModule } from './search/search.module';
 import { DocsModule } from './docs/docs.module';
 import { AdminModule } from './admin/admin.module';
+import { SessionsModule } from './sessions/sessions.module';
 import { RedisModule } from '@nestjs-modules/ioredis';
 
 @Module({
@@ -33,6 +34,7 @@ import { RedisModule } from '@nestjs-modules/ioredis';
     SearchModule,
     DocsModule,
     AdminModule,
+    SessionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
