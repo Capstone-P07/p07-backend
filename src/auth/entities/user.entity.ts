@@ -11,9 +11,9 @@ export class User {
   @Column({ type: 'varchar', length: 20, nullable: true })
   name: string;
 
-  @Column({ type: 'varchar', length: 255 })
-  pwd_hash: string;
+  @Column({ name: 'pwd_hash', type: 'varchar', length: 255 })
+  pwdHash: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 }

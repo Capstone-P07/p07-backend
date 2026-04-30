@@ -18,16 +18,16 @@ export class UnansweredQuestion {
   @Column({ type: 'int', default: 1 })
   frequency: number;
 
-  @Column({ type: 'int', nullable: true })
-  resolved_by: number;
+  @Column({ name: 'resolved_by', type: 'int', nullable: true })
+  resolvedBy: number;
 
   @ManyToOne(() => Document, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'resolved_by' })
   resolvedDocument: Document;
 
-  @CreateDateColumn({ type: 'timestamptz' })
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz', nullable: true })
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz', nullable: true })
+  updatedAt: Date;
 }

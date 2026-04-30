@@ -64,11 +64,11 @@ export class DocsService {
       docs: rows.map((d) => ({
         docId: d.id,
         title: d.title,
-        source: d.source_url ? 'url' : 'file',
-        sourceValue: d.source_url ?? null,
+        source: d.sourceUrl ? 'url' : 'file',
+        sourceValue: d.sourceUrl ?? null,
         chunkCount: (d as Document & { chunkCount?: number }).chunkCount ?? 0,
         indexStatus: d.status,
-        updatedAt: d.updated_at ?? d.created_at,
+        updatedAt: d.updatedAt ?? d.createdAt,
       })),
     };
   }
@@ -87,12 +87,12 @@ export class DocsService {
     return {
       docId: doc.id,
       title: doc.title,
-      source: doc.source_url ? 'url' : 'file',
-      sourceValue: doc.source_url ?? null,
+      source: doc.sourceUrl ? 'url' : 'file',
+      sourceValue: doc.sourceUrl ?? null,
       chunkCount: (doc as Document & { chunkCount?: number }).chunkCount ?? 0,
       indexStatus: doc.status,
-      createdAt: doc.created_at,
-      updatedAt: doc.updated_at ?? doc.created_at,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt ?? doc.createdAt,
     };
   }
 
@@ -116,7 +116,7 @@ export class DocsService {
           message: '변경 사항이 없습니다.',
         };
       }
-      await this.documentRepo.update(id, { title: dto.title, updated_at: new Date() });
+      await this.documentRepo.update(id, { title: dto.title, updatedAt: new Date() });
       return {
         docId: id,
         title: dto.title,
@@ -134,7 +134,7 @@ export class DocsService {
     }
 
     const newTitle = dto.title ?? parsed.title ?? doc.title;
-    await this.documentRepo.update(id, { status: 'indexing', updated_at: new Date() });
+    await this.documentRepo.update(id, { status: 'indexing', updatedAt: new Date() });
 
     try {
       await this.dataSource.transaction(async (m) => {
@@ -151,7 +151,7 @@ export class DocsService {
         await m.update(Document, id, {
           title: newTitle,
           status: 'indexed',
-          updated_at: new Date(),
+          updatedAt: new Date(),
         });
       });
 
@@ -179,7 +179,7 @@ export class DocsService {
     }
 
     // ON DELETE CASCADE 로 doc_chunks 도 함께 삭제됨 (init.sql)
-    const deletedChunks = await this.chunkRepo.count({ where: { doc_id: id } });
+    const deletedChunks = await this.chunkRepo.count({ where: { docId: id } });
     await this.documentRepo.delete(id);
 
     this.logger.log(`문서 삭제 완료: docId=${id}, ${deletedChunks} chunks`);
@@ -196,7 +196,7 @@ export class DocsService {
       throw new NotFoundException(`Document ${id} not found`);
     }
 
-    await this.documentRepo.update(id, { status: 'indexing', updated_at: new Date() });
+    await this.documentRepo.update(id, { status: 'indexing', updatedAt: new Date() });
 
     try {
       // content 자체는 동일하지만 UPDATE 가 mecab-ko 트리거 (`doc_chunks_fts_update`) 를 다시 발화시켜
@@ -205,7 +205,7 @@ export class DocsService {
         'UPDATE doc_chunks SET content = content WHERE doc_id = $1',
         [id],
       );
-      await this.documentRepo.update(id, { status: 'indexed', updated_at: new Date() });
+      await this.documentRepo.update(id, { status: 'indexed', updatedAt: new Date() });
 
       this.logger.log(`문서 재색인 (FTS 트리거 재실행) 완료: docId=${id}`);
       return { docId: id, indexStatus: 'indexed' };
@@ -241,10 +241,10 @@ export class DocsService {
       docId: id,
       chunks: chunks.map((c) => ({
         chunkId: c.id,
-        chunkIndex: c.chunk_index,
+        chunkIndex: c.chunkIndex,
         heading: c.heading,
         content: c.content,
-        ...(opts.includeFts ? { ftsVector: c.fts_vector } : {}),
+        ...(opts.includeFts ? { ftsVector: c.ftsector } : {}),
       })),
     };
   }
@@ -257,7 +257,7 @@ export class DocsService {
     const doc = await this.documentRepo.save(
       this.documentRepo.create({
         title,
-        source_url: sourceUrl,
+        sourceUrl: sourceUrl,
         status: 'indexing',
       }),
     );

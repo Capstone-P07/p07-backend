@@ -7,15 +7,15 @@ export class ChatLog {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'uuid', nullable: true })
-  session_id: string;
+  @Column({ name: 'session_id', type: 'uuid', nullable: true })
+  sessionId: string;
 
   @ManyToOne(() => Session, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'session_id' })
   session: Session;
 
-  @Column({ type: 'uuid', nullable: true })
-  user_id: string;
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
+  userId: string;
 
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'user_id' })
@@ -27,6 +27,6 @@ export class ChatLog {
   @Column({ type: 'varchar', length: 10, nullable: true })
   role: 'user' | 'assistant';
 
-  @CreateDateColumn({ type: 'timestamptz' })
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 }

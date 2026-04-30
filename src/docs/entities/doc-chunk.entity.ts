@@ -11,15 +11,15 @@ export class DocChunk {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'int' })
-  doc_id: number;
+  @Column({ name: 'doc_id', type: 'int' })
+  docId: number;
 
   @ManyToOne(() => Document, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'doc_id' })
   document: Document;
 
-  @Column({ type: 'int', nullable: true })
-  chunk_index: number;
+  @Column({ name: 'chunk_index', type: 'int', nullable: true })
+  chunkIndex: number;
 
   @Column({ type: 'text', nullable: true })
   heading: string;
@@ -29,9 +29,9 @@ export class DocChunk {
 
   // fts_vector is owned by the DB trigger `doc_chunks_fts_update` (public.korean config).
   // The backend never reads, writes, or updates this column.
-  @Column({ type: 'tsvector', nullable: true, select: false, insert: false, update: false })
-  fts_vector: string;
+  @Column({ name: 'fts_vector', type: 'tsvector', nullable: true, select: false, insert: false, update: false })
+  ftsVector: string;
 
-  @CreateDateColumn({ type: 'timestamptz' })
-  created_at: Date;
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
 }
