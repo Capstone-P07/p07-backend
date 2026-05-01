@@ -244,7 +244,7 @@ export class DocsService {
         chunkIndex: c.chunkIndex,
         heading: c.heading,
         content: c.content,
-        ...(opts.includeFts ? { ftsVector: c.ftsector } : {}),
+        ...(opts.includeFts ? { ftsVector: c.ftsVector } : {}),
       })),
     };
   }

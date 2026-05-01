@@ -1,14 +1,16 @@
-import { Controller, Post, Get, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Patch, Param, UseGuards, Request } from '@nestjs/common';
 import { SessionsService } from './sessions.service';
-import { CreateSessionDto } from './dto/create-session.dto';
+import { JwtAuthGuard, JwtOptionalAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('sessions')
 export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
 
   @Post()
-  create(@Body() dto: CreateSessionDto) {
-    return this.sessionsService.createSession(dto);
+  @UseGuards(JwtOptionalAuthGuard)
+  create( @Request() req ) {
+    const userId = req.user?.userId ?? null;
+    return this.sessionsService.createSession(userId);
   }
 
   @Get(':sessionId')
@@ -20,4 +22,14 @@ export class SessionsController {
   delete(@Param('sessionId') sessionId: string) {
     return this.sessionsService.deleteSession(sessionId);
   }
+
+  @Patch(':sessionId')
+  @UseGuards(JwtAuthGuard) // 로그인 필수
+  updateSessionUser(
+    @Param('sessionId') sessionId: string,
+    @Request() req,
+  ) {
+    const userId = req.user.userId;
+    return this.sessionsService.updateSessionUser(sessionId, userId);
+}
 }

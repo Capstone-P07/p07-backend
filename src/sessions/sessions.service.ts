@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
 import { Session } from './entities/session.entity';
-import { CreateSessionDto } from './dto/create-session.dto';
 
 @Injectable()
 export class SessionsService {
@@ -16,13 +15,12 @@ export class SessionsService {
   ) {}
 
   //세션 생성
-  async createSession(dto: CreateSessionDto) {
+  async createSession(userId : string | null) {
     
-    const createdAt = Date.now();
     const expiresAt = new Date(Date.now() + this.SESSION_TTL * 1000);
 
     const session = await this.sessionRepo.save({
-      userId: dto.userId ?? null,
+      userId,
       expiresAt,
     });
 
@@ -84,6 +82,33 @@ export class SessionsService {
     return {
       success: true,
       data: null,
+    };
+  }
+
+  //세션 생성 후 로그인 시 sessions 테이블에 userid update
+  async updateSessionUser(sessionId: string, userId: string) {
+    // DB 업데이트
+    await this.sessionRepo.update(
+        { id: sessionId },
+        { userId }
+    );
+
+    // Redis 캐시도 업데이트
+    const cached = await this.redis.get(`session:${sessionId}`);
+    if (cached) {
+        const session = JSON.parse(cached);
+        session.userId = userId;
+        await this.redis.set(
+        `session:${sessionId}`,
+        JSON.stringify(session),
+        'EX',
+        this.SESSION_TTL,
+        );
+    }
+
+    return {
+        success: true,
+        data: null,
     };
   }
 }
