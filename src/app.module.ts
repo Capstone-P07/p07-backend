@@ -10,6 +10,7 @@ import { DocsModule } from './docs/docs.module';
 import { AdminModule } from './admin/admin.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { RedisModule } from '@nestjs-modules/ioredis';
+import { LogsModule } from './logs/logs.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { RedisModule } from '@nestjs-modules/ioredis';
     DocsModule,
     AdminModule,
     SessionsModule,
+    LogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
