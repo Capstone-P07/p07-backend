@@ -4,6 +4,7 @@ import { SearchController } from './search.controller';
 import { SearchLog } from './entities/search-log.entity';
 import { SearchService } from './search.service';
 import { RedisModule } from '@nestjs-modules/ioredis';
+import { ChatService } from '../chat/chat.service';
 
 @Module({
    imports: [
@@ -11,6 +12,7 @@ import { RedisModule } from '@nestjs-modules/ioredis';
     RedisModule,
   ],
   controllers: [SearchController],
-  providers: [SearchService]
+  providers: [SearchService],
+  exports: [SearchService],
 })
 export class SearchModule {}
