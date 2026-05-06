@@ -18,6 +18,9 @@ export class SearchService {
 
   private readonly FTS_LANGUAGE = 'korean';
   
+  // 고도화 필요 - 쿼리 정규화 로직
+  // 사용자 질문 원문 저장 -> llm 연동 후 정규화된 질문 저장
+  // ex) 멤버는 어떻게 초대하나요? -> 멤버 초대 방법
   async search(dto: SearchQueryDto) {
     const startTime = Date.now();
     const { query, topK = 5, sessionId } = dto;
@@ -96,7 +99,27 @@ export class SearchService {
     await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 600);
 
     return result;
-
-    
   }
+
+  async getTopFaqs(limit: number = 5) {
+    const result = await this.searchLogRepo
+        .createQueryBuilder('log')
+        .select('log.query', 'question')
+        .addSelect('COUNT(*)', 'count')
+        .groupBy('log.query')
+        .orderBy('count', 'DESC')
+        .limit(limit)
+        .getRawMany();
+
+    return {
+        success: true,
+        data: {
+        faqs: result.map((r, i) => ({
+            rank: i + 1,
+            question: r.question,
+            count: parseInt(r.count),
+        })),
+        },
+    }; 
+  } 
 }

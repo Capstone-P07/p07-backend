@@ -1,4 +1,4 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { SearchQueryDto } from './dto/search-query.dto';
 
@@ -9,5 +9,10 @@ export class SearchController {
   @Post()
   async search(@Body() dto: SearchQueryDto) {
     return this.searchService.search(dto);
+  }
+
+  @Get('faq')
+  async getTopFaqs(@Query('limit') limit?: string) {
+    return this.searchService.getTopFaqs(limit ? parseInt(limit) : 5);
   }
 }
