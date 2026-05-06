@@ -85,7 +85,8 @@ export class SearchService {
             chunks: chunks.map((chunk) => ({
                 chunkId: chunk.id,
                 docId: chunk.doc_id,
-                title: chunk.heading,
+                docTitle: chunk.doc_title, // 문서 제목
+                heading: chunk.heading, // 소제목
                 content: chunk.content,
                 url: chunk.source_url,
                 score: chunk.rank,
