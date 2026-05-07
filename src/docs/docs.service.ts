@@ -138,12 +138,12 @@ export class DocsService {
 
     try {
       await this.dataSource.transaction(async (m) => {
-        await m.delete(DocChunk, { doc_id: id });
+        await m.delete(DocChunk, { docId: id });
         await m.insert(
           DocChunk,
           chunks.map((c) => ({
-            doc_id: id,
-            chunk_index: c.chunkIndex,
+            docId: id,
+            chunkIndex: c.chunkIndex,
             heading: c.heading,
             content: c.content,
           })),
@@ -275,8 +275,8 @@ export class DocsService {
         await m.insert(
           DocChunk,
           chunks.map((c) => ({
-            doc_id: doc.id,
-            chunk_index: c.chunkIndex,
+            docId: doc.id,
+            chunkIndex: c.chunkIndex,
             heading: c.heading,
             content: c.content,
           })),

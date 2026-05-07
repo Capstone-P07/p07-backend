@@ -53,8 +53,8 @@ export class ChatService {
 
     // done 이벤트 전송
     const references = chunks.map(chunk => ({
-      title: chunk.heading ?? chunk.doc_title,
-      url: chunk.source_url,
+      title: chunk.docTitle,
+      url: chunk.url,
       section: chunk.heading,
     }));
 
