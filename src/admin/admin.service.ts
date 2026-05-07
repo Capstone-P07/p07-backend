@@ -94,12 +94,12 @@ export class AdminService {
 
     // 일별 추이 (최근 30일)
     const daily = await this.dataSource.query<
-      { date: string; thumb_up: string; thumb_down: string }[]
+      { date: string; thumbUp: string; thumbDown: string }[]
     >(`
       SELECT
         DATE_TRUNC('day', created_at)::date AS date,
-        COUNT(*) FILTER (WHERE rating = 'thumb_up')  AS thumb_up,
-        COUNT(*) FILTER (WHERE rating = 'thumb_down') AS thumb_down
+        COUNT(*) FILTER (WHERE rating = 'thumb_up')  AS "thumbUp",
+        COUNT(*) FILTER (WHERE rating = 'thumb_down') AS "thumbDown"
       FROM feedback
       WHERE created_at >= NOW() - INTERVAL '30 days'
       GROUP BY DATE_TRUNC('day', created_at)
@@ -115,8 +115,8 @@ export class AdminService {
       },
       daily: daily.map((r) => ({
         date: r.date,
-        thumbUp: Number(r.thumb_up),
-        thumbDown: Number(r.thumb_down),
+        thumbUp: Number(r.thumbUp),
+        thumbDown: Number(r.thumbDown),
       })),
     };
   }
@@ -180,14 +180,14 @@ export class AdminService {
       .getRawMany<{ status: string; count: string }>();
 
     // 검색에서 가장 많이 히트된 문서 Top 10
-    // matched_chunks_json 은 [{doc_id, ...}, ...] 형태
+    // matched_chunks_json 은 [{docId, ...}, ...] 형태
     const topDocs = await this.dataSource.query<
-      { doc_id: string; title: string; hit_count: string }[]
+      { docId: string; title: string; hitCount: string }[]
     >(`
       SELECT
-        d.id   AS doc_id,
+        d.id   AS "docId",
         d.title,
-        COUNT(*) AS hit_count
+        COUNT(*) AS "hitCount"
       FROM search_logs sl
       CROSS JOIN LATERAL jsonb_array_elements(
         CASE jsonb_typeof(sl.matched_chunks_json)
@@ -198,7 +198,7 @@ export class AdminService {
       JOIN document d ON d.id = (chunk->>'doc_id')::int
       WHERE sl.matched_chunks_json IS NOT NULL
       GROUP BY d.id, d.title
-      ORDER BY hit_count DESC
+      ORDER BY "hitCount" DESC
       LIMIT 10
     `);
 
@@ -208,9 +208,9 @@ export class AdminService {
         count: Number(r.count),
       })),
       topDocuments: topDocs.map((r) => ({
-        docId: Number(r.doc_id),
+        docId: Number(r.docId),
         title: r.title,
-        hitCount: Number(r.hit_count),
+        hitCount: Number(r.hitCount),
       })),
     };
   }
