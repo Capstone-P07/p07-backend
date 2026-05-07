@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Delete, Post, Param, Query, Body, Req, UseGuards } from '@nestjs/common';
 import { LogsService } from './logs.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -6,17 +6,25 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class LogsController {
   constructor(private readonly logsService: LogsService) {}
 
-  // 사용자 세션 목록 조회 (로그인 필수)
   @Get('chat/history')
   @UseGuards(JwtAuthGuard)
   getChatHistory(@Req() req: any) {
-    const userId = req.user.userId;
-    return this.logsService.getChatHistory(userId);
+    return this.logsService.getChatHistory(req.user.userId);
   }
 
-  // 특정 세션 메시지 조회
   @Get('chat')
   getSessionLogs(@Query('sessionId') sessionId: string) {
     return this.logsService.getSessionLogs(sessionId);
+  }
+
+  @Delete('chat/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  deleteSession(@Param('sessionId') sessionId: string, @Req() req: any) {
+    return this.logsService.deleteSession(sessionId, req.user.userId);
+  }
+
+  @Post('feedback')
+  saveFeedback(@Body() body: { logId: number; rating: 'thumb_up' | 'thumb_down'; comment?: string }) {
+    return this.logsService.saveFeedback(body.logId, body.rating, body.comment);
   }
 }
