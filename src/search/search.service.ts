@@ -16,7 +16,7 @@ export class SearchService {
     @InjectRedis() private redis: Redis,
   ) {}
 
-  private readonly FTS_LANGUAGE = 'simple';
+  private readonly FTS_LANGUAGE = 'korean';
   
   async search(dto: SearchQueryDto) {
     const startTime = Date.now();
