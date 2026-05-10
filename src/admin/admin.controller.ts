@@ -1,4 +1,73 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get, Query, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
+import { AdminService } from './admin.service';
 
 @Controller('admin')
-export class AdminController {}
+export class AdminController {
+  constructor(private readonly adminService: AdminService) {}
+
+  /**
+   * GET /admin/stats/overview
+   * FR-032: 전체 현황 (총 질문 수, 만족도, 미답변 수, 색인 문서 수)
+   */
+  @Get('stats/overview')
+  async getOverview() {
+    const data = await this.adminService.getOverview();
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /admin/stats/top-queries?limit=10
+   * FR-006 / FR-032: 자주 묻는 질문 Top N
+   */
+  @Get('stats/top-queries')
+  async getTopQueries(
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    const data = await this.adminService.getTopQueries(limit);
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /admin/stats/satisfaction
+   * FR-033: 만족도 통계 (요약 + 일별 추이)
+   */
+  @Get('stats/satisfaction')
+  async getSatisfactionStats() {
+    const data = await this.adminService.getSatisfactionStats();
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /admin/stats/unanswered
+   * FR-034: 미답변 질문 비율 및 사유별 통계
+   */
+  @Get('stats/unanswered')
+  async getUnansweredStats() {
+    const data = await this.adminService.getUnansweredStats();
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /admin/stats/documents
+   * FR-035: 문서별 활용 통계
+   */
+  @Get('stats/documents')
+  async getDocumentStats() {
+    const data = await this.adminService.getDocumentStats();
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * GET /admin/unanswered?page=1&limit=20&status=unresolved
+   * FR-029: 미답변 질문 목록 조회
+   */
+  @Get('unanswered')
+  async getUnansweredList(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('status') status?: string,
+  ) {
+    const data = await this.adminService.getUnansweredList(page, limit, status);
+    return { success: true, data, error: null };
+  }
+}
