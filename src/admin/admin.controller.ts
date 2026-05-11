@@ -10,8 +10,10 @@ export class AdminController {
    * FR-032: 전체 현황 (총 질문 수, 만족도, 미답변 수, 색인 문서 수)
    */
   @Get('stats/overview')
-  async getOverview() {
-    const data = await this.adminService.getOverview();
+  async getOverview(
+    @Query('period') period?: string
+  ) {
+    const data = await this.adminService.getOverview(period);
     return { success: true, data, error: null };
   }
 
@@ -22,8 +24,9 @@ export class AdminController {
   @Get('stats/top-queries')
   async getTopQueries(
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('period') period?: string,
   ) {
-    const data = await this.adminService.getTopQueries(limit);
+    const data = await this.adminService.getTopQueries(limit, period);
     return { success: true, data, error: null };
   }
 
@@ -32,8 +35,10 @@ export class AdminController {
    * FR-033: 만족도 통계 (요약 + 일별 추이)
    */
   @Get('stats/satisfaction')
-  async getSatisfactionStats() {
-    const data = await this.adminService.getSatisfactionStats();
+  async getSatisfactionStats(
+    @Query('period') period?: string,
+  ) {
+    const data = await this.adminService.getSatisfactionStats(period);
     return { success: true, data, error: null };
   }
 

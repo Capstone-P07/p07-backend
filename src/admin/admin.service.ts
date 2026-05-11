@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Between } from 'typeorm';
 import { UnansweredQuestion } from './entities/unanswered-question.entity';
 import { Feedback } from './entities/feedback.entity';
 import { ChatLog } from '../chat/entities/chat-log.entity';
@@ -30,23 +30,34 @@ export class AdminService {
    * - 만족도 (thumb_up 비율)
    * - 미답변 질문 수
    */
-  async getOverview() {
+  async getOverview(period?: string) {
+    const now = new Date();
+    const from = new Date();
+    if (period === 'today') {
+      from.setHours(0, 0, 0, 0);
+    } else if (period === '7d') {
+      from.setDate(now.getDate() - 7);
+    } else if (period === '30d') {
+      from.setDate(now.getDate() - 30);
+    } else {
+      from.setFullYear(2000); // 전체 기간
+    }
     const [totalQuestions, totalFeedback, thumbUp, totalUnanswered, totalDocs] =
       await Promise.all([
         // 사용자가 보낸 메시지 수 = 총 질문 수
-        this.chatLogRepo.count({ where: { role: 'user' } }),
+        this.chatLogRepo.count({ where: { role: 'user', ...(period !== 'all' && { createdAt: Between(from, now) })} }),
 
         // 전체 피드백 수
-        this.feedbackRepo.count(),
+        this.feedbackRepo.count({where: {...(period !== 'all' && { createdAt: Between(from, now) })}}),
 
         // 긍정 피드백 수
-        this.feedbackRepo.count({ where: { rating: 'thumb_up' } }),
+        this.feedbackRepo.count({ where: { rating: 'thumb_up', ...(period !== 'all' && { createdAt: Between(from, now) }) } }),
 
         // 미답변 질문 수 (unresolved 상태)
-        this.unansweredRepo.count({ where: { status: 'unresolved' } }),
+        this.unansweredRepo.count({ where: { status: 'unresolved', ...(period !== 'all' && { createdAt: Between(from, now) }) } }),
 
         // 색인된 문서 수
-        this.documentRepo.count({ where: { status: 'indexed' } }),
+        this.documentRepo.count({ where: { status: 'indexed', ...(period !== 'all' && { createdAt: Between(from, now) }) } }),
       ]);
 
     // 만족도: 피드백이 하나라도 있을 때만 계산
@@ -68,11 +79,19 @@ export class AdminService {
    * FR-006 / FR-032: 자주 묻는 질문 Top N
    * search_logs 에서 동일 query 를 집계
    */
-  async getTopQueries(limit = 10) {
+  async getTopQueries(limit = 10, period?: string) {
+    const now = new Date();
+    const from = new Date();
+    if (period === 'today') from.setHours(0, 0, 0, 0);
+    else if (period === '7d') from.setDate(now.getDate() - 7);
+    else if (period === '30d') from.setDate(now.getDate() - 30);
+    else from.setFullYear(2000);
+
     const rows = await this.searchLogRepo
       .createQueryBuilder('sl')
       .select('sl.query', 'query')
       .addSelect('COUNT(*)', 'count')
+      .where(period !== 'all' ? 'sl.createdAt BETWEEN :from AND :now' : '1=1', { from, now })
       .groupBy('sl.query')
       .orderBy('COUNT(*)', 'DESC')
       .limit(limit)
@@ -84,11 +103,24 @@ export class AdminService {
   /**
    * FR-033: 만족도 통계 (일별 추이)
    */
-  async getSatisfactionStats() {
+  async getSatisfactionStats(period?: string) {
+    const now = new Date();
+    const from = new Date();
+    if (period === 'today') from.setHours(0, 0, 0, 0);
+    else if (period === '7d') from.setDate(now.getDate() - 7);
+    else if (period === '30d') from.setDate(now.getDate() - 30);
+    else from.setFullYear(2000);
+
+    const whereClause = period !== 'all'
+      ? `WHERE created_at BETWEEN '${from.toISOString()}' AND '${now.toISOString()}'`
+      : '';
+
     // 전체 비율
-    const total = await this.feedbackRepo.count();
+    const total = await this.feedbackRepo.count({
+      where: { ...(period !== 'all' && { createdAt: Between(from, now) }) }
+    });
     const thumbUp = await this.feedbackRepo.count({
-      where: { rating: 'thumb_up' },
+      where: { rating: 'thumb_up', ...(period !== 'all' && { createdAt: Between(from, now) }) },
     });
     const thumbDown = total - thumbUp;
 
@@ -101,7 +133,7 @@ export class AdminService {
         COUNT(*) FILTER (WHERE rating = 'thumb_up')  AS "thumbUp",
         COUNT(*) FILTER (WHERE rating = 'thumb_down') AS "thumbDown"
       FROM feedback
-      WHERE created_at >= NOW() - INTERVAL '30 days'
+      ${whereClause}
       GROUP BY DATE_TRUNC('day', created_at)
       ORDER BY date ASC
     `);
