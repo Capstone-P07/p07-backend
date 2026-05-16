@@ -4,13 +4,17 @@ import { Repository } from 'typeorm';
 import { ChatLog } from './entities/chat-log.entity';
 import { SearchService } from '../search/search.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { LlmService } from './llm.service';
+import { UnansweredQuestion } from '../admin/entities/unanswered-question.entity';
 
 @Injectable()
 export class ChatService {
 
   constructor(
     private searchService: SearchService,
+    private llmService: LlmService,
     @InjectRepository(ChatLog) private chatLogRepo: Repository<ChatLog>,
+    @InjectRepository(UnansweredQuestion) private unansweredRepo: Repository<UnansweredQuestion>,
   ) {}
 
   async sendMessage(
@@ -32,19 +36,37 @@ export class ChatService {
 
     const chunks = searchResult.data.chunks;
 
-    // LLM 목업 스트리밍 (나중에 OpenAI로 교체)
-    const mockAnswer = chunks.length > 0
-      ? '관련 문서를 찾았습니다. 현재 LLM 연동 준비 중입니다.'
-      : '죄송합니다. 관련 문서를 찾지 못했습니다.';
+    let assistantMessage = '';
 
-    const words = mockAnswer.split(' ');
-    for (const word of words) {
-      res.write(`event: chunk\ndata: ${JSON.stringify({ type: 'chunk', text: word + ' ' })}\n\n`);
-      await new Promise(resolve => setTimeout(resolve, 100)); // 스트리밍 효과
-    }
+    await this.llmService.streamAnswer(
+      dto.question,
+      chunks,
+      [],
+      (text) => {
+        assistantMessage += text;
+        res.write(`event: chunk\ndata: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
+      },
+      async (type) => {
+        if (type === 'no_document') {
+        await this.unansweredRepo.save({
+          question: dto.question,
+          reason: 'no_document',
+          status: 'unresolved',
+        });
+      }
 
-    // chat_logs 저장
-    const assistantMessage = mockAnswer;
+      const references = type === 'success'
+        ? chunks.map(chunk => ({
+            title: chunk.docTitle,
+            url: chunk.url,
+            section: chunk.heading,
+          }))
+        : [];
+
+      res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', references })}\n\n`);
+      res.end();
+      }
+    )
 
     await this.chatLogRepo.save([
       { sessionId, userId, message: dto.question, role: 'user' },
