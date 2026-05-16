@@ -41,7 +41,7 @@ export class DocsService {
       }
       const text = file.buffer.toString('utf-8');
       const parsed = parseMarkdown(text);
-      return this.persist(dto.title ?? parsed.title, null, parsed.sections);
+      return this.persist(dto.title ?? parsed.title, dto.url ?? null, parsed.sections);
     }
 
     if (dto.source === 'url') {
