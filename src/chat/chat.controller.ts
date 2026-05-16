@@ -1,21 +1,20 @@
-import { Controller, Post, Param, Body, Res, Req, UseGuards } from '@nestjs/common';
+import { Controller, Param, Query, Req, UseGuards, Sse } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { ChatService } from './chat.service';
-import { SendMessageDto } from './dto/send-message.dto';
 import { JwtOptionalAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('chat')
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
-  @Post('message/:sessionId')
+  @Sse('message/:sessionId')
   @UseGuards(JwtOptionalAuthGuard)
   sendMessage(
     @Param('sessionId') sessionId: string,
-    @Body() dto: SendMessageDto,
+    @Query('question') question: string,
     @Req() req: any,
-    @Res() res: any,
-  ) {
+  ): Observable<MessageEvent>{
     const userId = req.user?.userId ?? null;
-    return this.chatService.sendMessage(dto, sessionId, userId, res);
+    return this.chatService.sendMessage(question, sessionId, userId);
   }
 }

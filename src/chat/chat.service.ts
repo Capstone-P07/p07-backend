@@ -3,62 +3,96 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatLog } from './entities/chat-log.entity';
 import { SearchService } from '../search/search.service';
-import { SendMessageDto } from './dto/send-message.dto';
+import { LlmService } from './llm.service';
+import { UnansweredQuestion } from '../admin/entities/unanswered-question.entity';
+import { Observable, Subject } from 'rxjs';
 
 @Injectable()
 export class ChatService {
 
   constructor(
     private searchService: SearchService,
+    private llmService: LlmService,
     @InjectRepository(ChatLog) private chatLogRepo: Repository<ChatLog>,
+    @InjectRepository(UnansweredQuestion) private unansweredRepo: Repository<UnansweredQuestion>,
   ) {}
 
-  async sendMessage(
-    dto: SendMessageDto,
+  sendMessage(
+    question: string,
     sessionId: string,
     userId: string | null,
-    res: any,
-  ) {
-    // SSE 헤더 설정
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+  ): Observable<any> {
+    const subject = new Subject<any>();
+    
+    (async () => {
+      try{
+        // FTS 검색 - SearchService 재사용
+        const searchResult = await this.searchService.search({
+          query: question,
+          topK: 5,
+          sessionId,
+        });
 
-    // FTS 검색 - SearchService 재사용
-    const searchResult = await this.searchService.search({
-      query: dto.question,
-      topK: 5,
-    });
+        const chunks = searchResult.data.chunks.filter(
+          (chunk: any) => chunk.score > 0.01
+        );
 
-    const chunks = searchResult.data.chunks;
+        // 이전 대화 맥락 유지용  
+        const previousLogs = await this.chatLogRepo.find({
+          where: { sessionId },
+          order: { createdAt: 'ASC' },
+          take: 10,
+        });
+        const previousMessages = previousLogs.map(log => ({
+          role: log.role as 'user' | 'assistant',
+          content: log.message,
+        }));
 
-    // LLM 목업 스트리밍 (나중에 OpenAI로 교체)
-    const mockAnswer = chunks.length > 0
-      ? '관련 문서를 찾았습니다. 현재 LLM 연동 준비 중입니다.'
-      : '죄송합니다. 관련 문서를 찾지 못했습니다.';
+        let assistantMessage = '';
 
-    const words = mockAnswer.split(' ');
-    for (const word of words) {
-      res.write(`event: chunk\ndata: ${JSON.stringify({ type: 'chunk', text: word + ' ' })}\n\n`);
-      await new Promise(resolve => setTimeout(resolve, 100)); // 스트리밍 효과
-    }
+        await this.llmService.streamAnswer(
+          question,
+          chunks,
+          previousMessages,
+          (text) => {
+            assistantMessage += text;
+            subject.next({data: { type: 'chunk', text }});
+          },
+          async (type) => {
 
-    // chat_logs 저장
-    const assistantMessage = mockAnswer;
+            //chat_logs 저장
+            await this.chatLogRepo.save([
+              { sessionId, userId, message: question, role: 'user' },
+              { sessionId, userId, message: assistantMessage, role: 'assistant' },
+            ]);
 
-    await this.chatLogRepo.save([
-      { sessionId, userId, message: dto.question, role: 'user' },
-      { sessionId, userId, message: assistantMessage, role: 'assistant' },
-    ]);
+            //무응답 질문 저장
+            if (type === 'no_document') {
+              await this.unansweredRepo.save({
+                question,
+                reason: 'no_document',
+                status: 'unresolved',
+              });
+            }
 
-    // done 이벤트 전송
-    const references = chunks.map(chunk => ({
-      title: chunk.docTitle,
-      url: chunk.url,
-      section: chunk.heading,
-    }));
+            const references = type === 'success'
+              ? chunks.map(chunk => ({
+                  title: chunk.docTitle,
+                  url: chunk.url,
+                  section: chunk.heading,
+                }))
+              : [];
 
-    res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', references })}\n\n`);
-    res.end();
+            subject.next({data: {type: 'done', references}});
+            subject.complete();
+          },
+        );
+      } catch(err){
+        subject.next({data: {type: 'chunk', text:'오류가 발생했습니다. 다시 시도해주세요.'}});
+        subject.next({data: {type: 'done', references: [] }});
+        subject.complete();
+      }
+    })();
+    return subject.asObservable();
   }
 }
