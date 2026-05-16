@@ -3,9 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatLog } from './entities/chat-log.entity';
 import { SearchService } from '../search/search.service';
-import { SendMessageDto } from './dto/send-message.dto';
 import { LlmService } from './llm.service';
 import { UnansweredQuestion } from '../admin/entities/unanswered-question.entity';
+import { Observable, Subject } from 'rxjs';
 
 @Injectable()
 export class ChatService {
@@ -17,70 +17,82 @@ export class ChatService {
     @InjectRepository(UnansweredQuestion) private unansweredRepo: Repository<UnansweredQuestion>,
   ) {}
 
-  async sendMessage(
-    dto: SendMessageDto,
+  sendMessage(
+    question: string,
     sessionId: string,
     userId: string | null,
-    res: any,
-  ) {
-    // SSE 헤더 설정
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    // FTS 검색 - SearchService 재사용
-    const searchResult = await this.searchService.search({
-      query: dto.question,
-      topK: 5,
-    });
-
-    const chunks = searchResult.data.chunks;
-
-    let assistantMessage = '';
-
-    await this.llmService.streamAnswer(
-      dto.question,
-      chunks,
-      [],
-      (text) => {
-        assistantMessage += text;
-        res.write(`event: chunk\ndata: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
-      },
-      async (type) => {
-        if (type === 'no_document') {
-        await this.unansweredRepo.save({
-          question: dto.question,
-          reason: 'no_document',
-          status: 'unresolved',
+  ): Observable<any> {
+    const subject = new Subject<any>();
+    
+    (async () => {
+      try{
+        // FTS 검색 - SearchService 재사용
+        const searchResult = await this.searchService.search({
+          query: question,
+          topK: 5,
+          sessionId,
         });
+
+        const chunks = searchResult.data.chunks.filter(
+          (chunk: any) => chunk.score > 0.01
+        );
+
+        // 이전 대화 맥락 유지용  
+        const previousLogs = await this.chatLogRepo.find({
+          where: { sessionId },
+          order: { createdAt: 'ASC' },
+          take: 10,
+        });
+        const previousMessages = previousLogs.map(log => ({
+          role: log.role as 'user' | 'assistant',
+          content: log.message,
+        }));
+
+        let assistantMessage = '';
+
+        await this.llmService.streamAnswer(
+          question,
+          chunks,
+          previousMessages,
+          (text) => {
+            assistantMessage += text;
+            subject.next({data: { type: 'chunk', text }});
+          },
+          async (type) => {
+
+            //chat_logs 저장
+            await this.chatLogRepo.save([
+              { sessionId, userId, message: question, role: 'user' },
+              { sessionId, userId, message: assistantMessage, role: 'assistant' },
+            ]);
+
+            //무응답 질문 저장
+            if (type === 'no_document') {
+              await this.unansweredRepo.save({
+                question,
+                reason: 'no_document',
+                status: 'unresolved',
+              });
+            }
+
+            const references = type === 'success'
+              ? chunks.map(chunk => ({
+                  title: chunk.docTitle,
+                  url: chunk.url,
+                  section: chunk.heading,
+                }))
+              : [];
+
+            subject.next({data: {type: 'done', references}});
+            subject.complete();
+          },
+        );
+      } catch(err){
+        subject.next({data: {type: 'chunk', text:'오류가 발생했습니다. 다시 시도해주세요.'}});
+        subject.next({data: {type: 'done', references: [] }});
+        subject.complete();
       }
-
-      const references = type === 'success'
-        ? chunks.map(chunk => ({
-            title: chunk.docTitle,
-            url: chunk.url,
-            section: chunk.heading,
-          }))
-        : [];
-
-      res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', references })}\n\n`);
-      res.end();
-      }
-    )
-
-    await this.chatLogRepo.save([
-      { sessionId, userId, message: dto.question, role: 'user' },
-      { sessionId, userId, message: assistantMessage, role: 'assistant' },
-    ]);
-
-    // done 이벤트 전송
-    const references = chunks.map(chunk => ({
-      title: chunk.docTitle,
-      url: chunk.url,
-      section: chunk.heading,
-    }));
-
-    res.write(`event: done\ndata: ${JSON.stringify({ type: 'done', references })}\n\n`);
-    res.end();
+    })();
+    return subject.asObservable();
   }
 }
