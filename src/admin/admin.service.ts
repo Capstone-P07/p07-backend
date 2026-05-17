@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between } from 'typeorm';
 import { UnansweredQuestion } from './entities/unanswered-question.entity';
@@ -6,6 +6,7 @@ import { Feedback } from './entities/feedback.entity';
 import { ChatLog } from '../chat/entities/chat-log.entity';
 import { SearchLog } from '../search/entities/search-log.entity';
 import { Document } from '../docs/entities/document.entity';
+import { UpdateUnansweredDto } from './dto/update-unanswered.dto';
 
 @Injectable()
 export class AdminService {
@@ -250,13 +251,21 @@ export class AdminService {
   /**
    * FR-029: 미답변 질문 목록 (페이지네이션)
    */
-  async getUnansweredList(page = 1, limit = 20, status?: string) {
-    const qb = this.unansweredRepo
-      .createQueryBuilder('uq')
-      .orderBy('uq.frequency', 'DESC')
-      .addOrderBy('uq.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit);
+  async getUnansweredList(
+    page = 1,
+    limit = 20,
+    status?: string,
+    sort: 'frequency' | 'latest' = 'frequency',
+  ) {
+    const qb = this.unansweredRepo.createQueryBuilder('uq');
+
+    if (sort === 'latest') {
+      qb.orderBy('uq.updatedAt', 'DESC').addOrderBy('uq.createdAt', 'DESC');
+    } else {
+      qb.orderBy('uq.frequency', 'DESC').addOrderBy('uq.createdAt', 'DESC');
+    }
+
+    qb.skip((page - 1) * limit).take(limit);
 
     if (status) {
       qb.where('uq.status = :status', { status });
@@ -269,6 +278,36 @@ export class AdminService {
       page,
       limit,
       items,
+    };
+  }
+
+  async updateUnansweredStatus(id: number, dto: UpdateUnansweredDto) {
+    const item = await this.unansweredRepo.findOne({ where: { id } });
+    if (!item) {
+      throw new NotFoundException(`Unanswered question ${id} not found`);
+    }
+
+    if (dto.status === 'resolved') {
+      if (!dto.resolvedBy) {
+        throw new BadRequestException('resolved 처리에는 resolvedBy 문서 ID가 필요합니다.');
+      }
+      const docExists = await this.documentRepo.exist({ where: { id: dto.resolvedBy } });
+      if (!docExists) {
+        throw new BadRequestException(`Document ${dto.resolvedBy} not found`);
+      }
+      item.resolvedBy = dto.resolvedBy;
+    } else {
+      item.resolvedBy = null;
+    }
+
+    item.status = dto.status;
+    const saved = await this.unansweredRepo.save(item);
+
+    return {
+      id: saved.id,
+      status: saved.status,
+      resolvedBy: saved.resolvedBy ?? null,
+      updatedAt: saved.updatedAt,
     };
   }
 }

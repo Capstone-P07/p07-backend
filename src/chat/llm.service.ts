@@ -1,11 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import OpenAI from 'openai';
 
 @Injectable()
 export class LlmService {
-  private openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
+  private openai?: OpenAI;
 
   async streamAnswer(
     question: string,
@@ -14,11 +12,12 @@ export class LlmService {
     onChunk: (text: string) => void,
     onDone: (type: 'success' | 'out_of_scope' | 'no_document') => void,
   ) {
+    const openai = this.getClient();
     const context = chunks
       .map((c, i) => `[${i + 1}] ${c.heading ?? ''}\n${c.content}`)
       .join('\n\n');
 
-    const stream = await this.openai.chat.completions.create({
+    const stream = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       stream: true,
       messages: [
@@ -93,5 +92,19 @@ ${context || '(관련 문서 없음)'}`,
     }
 
     onDone(type);
+  }
+
+  private getClient() {
+    if (this.openai) {
+      return this.openai;
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new ServiceUnavailableException('OPENAI_API_KEY가 설정되어 있지 않습니다.');
+    }
+
+    this.openai = new OpenAI({ apiKey });
+    return this.openai;
   }
 }
