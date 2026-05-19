@@ -1,5 +1,6 @@
-import { Controller, Get, Query, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Query } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { UpdateUnansweredDto } from './dto/update-unanswered.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -71,8 +72,22 @@ export class AdminController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
     @Query('status') status?: string,
+    @Query('sort', new DefaultValuePipe('frequency')) sort?: 'frequency' | 'latest',
   ) {
-    const data = await this.adminService.getUnansweredList(page, limit, status);
+    const data = await this.adminService.getUnansweredList(page, limit, status, sort);
+    return { success: true, data, error: null };
+  }
+
+  /**
+   * PATCH /admin/unanswered/:id
+   * FR-029: 미답변 질문 처리 상태 변경
+   */
+  @Patch('unanswered/:id')
+  async updateUnansweredStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateUnansweredDto,
+  ) {
+    const data = await this.adminService.updateUnansweredStatus(id, dto);
     return { success: true, data, error: null };
   }
 }
