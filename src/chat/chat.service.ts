@@ -75,7 +75,7 @@ export class ChatService {
 
             if (type === 'no_document') {
               await this.unansweredRepo.save({
-                question,
+                question: normalizedQuery,
                 reason: 'no_document',
                 status: 'unresolved',
               });
