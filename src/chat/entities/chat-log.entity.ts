@@ -24,6 +24,14 @@ export class ChatLog {
   @Column({ type: 'text', nullable: true })
   message: string;
 
+  @Column({ name: 'references_json', type: 'jsonb', nullable: true })
+  referencesJson: Array<{
+    chunkId: number;
+    docTitle: string;
+    heading: string;
+    url: string;
+  }> | null;
+
   @Column({ type: 'varchar', length: 10, nullable: true })
   role: 'user' | 'assistant';
 
