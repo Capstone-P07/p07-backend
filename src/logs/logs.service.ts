@@ -63,6 +63,7 @@ export class LogsService {
           logId: log.id,
           role: log.role,
           content: log.message,
+          references: log.referencesJson ?? [],
           createdAt: log.createdAt,
         })),
       },
