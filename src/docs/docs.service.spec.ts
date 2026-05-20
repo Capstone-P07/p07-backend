@@ -1,0 +1,233 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { DocsService } from './docs.service';
+import { Document } from './entities/document.entity';
+import { DocChunk } from './entities/doc-chunk.entity';
+import { parseUrl } from './parsers/html.parser';
+
+jest.mock('./parsers/html.parser', () => ({
+  parseUrl: jest.fn(),
+}));
+
+const mockedParseUrl = parseUrl as jest.MockedFunction<typeof parseUrl>;
+
+const makeFile = (content: string): Express.Multer.File =>
+  ({
+    buffer: Buffer.from(content, 'utf-8'),
+    originalname: 'test.md',
+    mimetype: 'text/markdown',
+    size: content.length,
+    fieldname: 'file',
+    encoding: '7bit',
+    destination: '',
+    filename: '',
+    path: '',
+    stream: null as unknown as NodeJS.ReadableStream,
+  }) as Express.Multer.File;
+
+describe('DocsService', () => {
+  let service: DocsService;
+  let documentRepo: {
+    save: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    createQueryBuilder: jest.Mock;
+    exist: jest.Mock;
+  };
+  let chunkRepo: { save: jest.Mock; createQueryBuilder: jest.Mock };
+  let dataSource: { transaction: jest.Mock };
+  let txManager: { insert: jest.Mock; update: jest.Mock };
+
+  beforeEach(async () => {
+    mockedParseUrl.mockReset();
+    txManager = { insert: jest.fn(), update: jest.fn() };
+    documentRepo = {
+      save: jest.fn(),
+      create: jest.fn((x) => x),
+      update: jest.fn(),
+      createQueryBuilder: jest.fn(),
+      exist: jest.fn(),
+    };
+    chunkRepo = { save: jest.fn(), createQueryBuilder: jest.fn() };
+    dataSource = {
+      transaction: jest.fn(async (cb: (m: typeof txManager) => Promise<unknown>) => cb(txManager)),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        DocsService,
+        { provide: getRepositoryToken(Document), useValue: documentRepo },
+        { provide: getRepositoryToken(DocChunk), useValue: chunkRepo },
+        { provide: DataSource, useValue: dataSource },
+      ],
+    }).compile();
+
+    service = module.get(DocsService);
+  });
+
+  it('happy path: Markdown 업로드 → indexed 상태 반환', async () => {
+    documentRepo.save.mockResolvedValueOnce({ id: 1, title: 't', status: 'indexing' });
+    const md = '# 제목\n\n## 섹션\n\n' + '본문. '.repeat(30);
+
+    const res = await service.create({ source: 'file' }, makeFile(md));
+
+    expect(documentRepo.save).toHaveBeenCalledTimes(1);
+    expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    expect(txManager.insert).toHaveBeenCalledWith(DocChunk, expect.any(Array));
+    expect(txManager.update).toHaveBeenCalledWith(Document, 1, { status: 'indexed' });
+    expect(res.indexStatus).toBe('indexed');
+    expect(res.docId).toBe(1);
+  });
+
+  it('source=file 인데 file 없음 → BadRequest', async () => {
+    await expect(service.create({ source: 'file' }, undefined)).rejects.toThrow(BadRequestException);
+  });
+
+  it('source=url → HTML 파싱 결과를 저장한다', async () => {
+    documentRepo.save.mockResolvedValueOnce({ id: 9, title: 'URL 문서', status: 'indexing' });
+    mockedParseUrl.mockResolvedValueOnce({
+      title: 'URL 문서',
+      sections: [
+        {
+          h1: 'URL 문서',
+          h2: null,
+          heading: 'URL 문서',
+          content: '색인 가능한 본문입니다. '.repeat(5),
+        },
+      ],
+    });
+
+    const res = await service.create({ source: 'url', url: 'https://docs.riido.io/start' }, undefined);
+
+    expect(mockedParseUrl).toHaveBeenCalledWith('https://docs.riido.io/start');
+    expect(documentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'URL 문서', sourceUrl: 'https://docs.riido.io/start' }),
+    );
+    expect(res).toEqual({
+      docId: 9,
+      title: 'URL 문서',
+      indexStatus: 'indexed',
+      message: '문서 등록이 완료되었습니다.',
+    });
+  });
+
+  it('source=url 인데 url 없음 → BadRequest', async () => {
+    await expect(service.create({ source: 'url' }, undefined)).rejects.toThrow(BadRequestException);
+    expect(mockedParseUrl).not.toHaveBeenCalled();
+  });
+
+  it('zero-chunk 파싱 결과 → failed 상태 업데이트 후 BadRequest', async () => {
+    documentRepo.save.mockResolvedValueOnce({ id: 7, title: 'empty', status: 'indexing' });
+    // 본문 없이 제목만 → 섹션 empty 또는 minChars 미달
+    const md = '# 제목만';
+
+    await expect(service.create({ source: 'file' }, makeFile(md))).rejects.toThrow(BadRequestException);
+    expect(documentRepo.update).toHaveBeenCalledWith(7, { status: 'failed' });
+  });
+
+  describe('findOne', () => {
+    it('happy path: 응답에 docId/title/source/chunkCount/indexStatus 매핑', async () => {
+      const qb = {
+        loadRelationCountAndMap: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue({
+          id: 2,
+          title: '12_백로그',
+          source_url: null,
+          status: 'indexed',
+          created_at: new Date('2026-04-24T06:00:00Z'),
+          updated_at: new Date('2026-04-24T06:30:00Z'),
+          chunkCount: 8,
+        }),
+      };
+      documentRepo.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await service.findOne(2);
+
+      expect(qb.where).toHaveBeenCalledWith('d.id = :id', { id: 2 });
+      expect(res).toEqual({
+        docId: 2,
+        title: '12_백로그',
+        source: 'file',
+        sourceValue: null,
+        chunkCount: 8,
+        indexStatus: 'indexed',
+        createdAt: new Date('2026-04-24T06:00:00Z'),
+        updatedAt: new Date('2026-04-24T06:30:00Z'),
+      });
+    });
+
+    it('없는 docId → NotFoundException', async () => {
+      const qb = {
+        loadRelationCountAndMap: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      };
+      documentRepo.createQueryBuilder.mockReturnValue(qb);
+
+      await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findChunks', () => {
+    const makeQbMock = (rows: unknown[]) => ({
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addSelect: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(rows),
+    });
+
+    it('기본: fts_vector 없이 청크 배열 반환', async () => {
+      documentRepo.exist.mockResolvedValue(true);
+      const qb = makeQbMock([
+        { id: 6, chunk_index: 0, heading: '백로그 > 개요', content: '본문1' },
+        { id: 7, chunk_index: 1, heading: '백로그 > 생성', content: '본문2' },
+      ]);
+      chunkRepo.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await service.findChunks(2);
+
+      expect(documentRepo.exist).toHaveBeenCalledWith({ where: { id: 2 } });
+      expect(qb.select).toHaveBeenCalledWith(['c.id', 'c.chunk_index', 'c.heading', 'c.content']);
+      expect(qb.where).toHaveBeenCalledWith('c.doc_id = :id', { id: 2 });
+      expect(qb.orderBy).toHaveBeenCalledWith('c.chunk_index', 'ASC');
+      expect(qb.addSelect).not.toHaveBeenCalled();
+      expect(res).toEqual({
+        docId: 2,
+        chunks: [
+          { chunkId: 6, chunkIndex: 0, heading: '백로그 > 개요', content: '본문1' },
+          { chunkId: 7, chunkIndex: 1, heading: '백로그 > 생성', content: '본문2' },
+        ],
+      });
+    });
+
+    it('includeFts=true: addSelect 호출 + 응답에 ftsVector 포함', async () => {
+      documentRepo.exist.mockResolvedValue(true);
+      const qb = makeQbMock([
+        { id: 6, chunk_index: 0, heading: '백로그 > 개요', content: '본문1', fts_vector: "'개요':1 '백로그':2" },
+      ]);
+      chunkRepo.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await service.findChunks(2, { includeFts: true });
+
+      expect(qb.addSelect).toHaveBeenCalledWith('c.fts_vector');
+      expect(res.chunks[0]).toEqual({
+        chunkId: 6,
+        chunkIndex: 0,
+        heading: '백로그 > 개요',
+        content: '본문1',
+        ftsVector: "'개요':1 '백로그':2",
+      });
+    });
+
+    it('없는 docId → NotFoundException (QueryBuilder 호출 전)', async () => {
+      documentRepo.exist.mockResolvedValue(false);
+
+      await expect(service.findChunks(999)).rejects.toThrow(NotFoundException);
+      expect(chunkRepo.createQueryBuilder).not.toHaveBeenCalled();
+    });
+  });
+});
