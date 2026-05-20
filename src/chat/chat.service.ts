@@ -59,9 +59,18 @@ export class ChatService {
             subject.next({data: { type: 'chunk', text }});
           },
           async (type) => {
+
+            const references = type === 'success'
+              ? chunks.map(chunk => ({
+                  title: chunk.docTitle,
+                  url: chunk.url,
+                  section: chunk.heading,
+                }))
+              : [];
+
             await this.chatLogRepo.save([
               { sessionId, userId, message: question, role: 'user' },
-              { sessionId, userId, message: assistantMessage, role: 'assistant' },
+              { sessionId, userId, message: assistantMessage, referencesJson: references, role: 'assistant' },
             ]);
 
             if (type === 'no_document') {
@@ -71,14 +80,6 @@ export class ChatService {
                 status: 'unresolved',
               });
             }
-
-            const references = type === 'success'
-              ? chunks.map(chunk => ({
-                  title: chunk.docTitle,
-                  url: chunk.url,
-                  section: chunk.heading,
-                }))
-              : [];
 
             subject.next({data: {type: 'done', references}});
             subject.complete();
