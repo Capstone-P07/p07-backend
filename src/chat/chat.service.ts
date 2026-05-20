@@ -25,10 +25,11 @@ export class ChatService {
     const subject = new Subject<any>();
     
     (async () => {
-      try{
-        // FTS 검색 - SearchService 재사용
+      try {
+        const normalizedQuery = await this.llmService.normalizeQuestion(question);
+
         const searchResult = await this.searchService.search({
-          query: question,
+          query: normalizedQuery,
           topK: 5,
           sessionId,
         });
@@ -37,7 +38,6 @@ export class ChatService {
           (chunk: any) => chunk.score > 0.01
         );
 
-        // 이전 대화 맥락 유지용  
         const previousLogs = await this.chatLogRepo.find({
           where: { sessionId },
           order: { createdAt: 'ASC' },
@@ -59,14 +59,11 @@ export class ChatService {
             subject.next({data: { type: 'chunk', text }});
           },
           async (type) => {
-
-            //chat_logs 저장
             await this.chatLogRepo.save([
               { sessionId, userId, message: question, role: 'user' },
               { sessionId, userId, message: assistantMessage, role: 'assistant' },
             ]);
 
-            //무응답 질문 저장
             if (type === 'no_document') {
               await this.unansweredRepo.save({
                 question,
@@ -87,7 +84,7 @@ export class ChatService {
             subject.complete();
           },
         );
-      } catch(err){
+      } catch(err) {
         subject.next({data: {type: 'chunk', text:'오류가 발생했습니다. 다시 시도해주세요.'}});
         subject.next({data: {type: 'done', references: [] }});
         subject.complete();
