@@ -1,10 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { BadRequestException, NotFoundException, NotImplementedException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { DocsService } from './docs.service';
 import { Document } from './entities/document.entity';
 import { DocChunk } from './entities/doc-chunk.entity';
+import { parseUrl } from './parsers/html.parser';
+
+jest.mock('./parsers/html.parser', () => ({
+  parseUrl: jest.fn(),
+}));
+
+const mockedParseUrl = parseUrl as jest.MockedFunction<typeof parseUrl>;
 
 const makeFile = (content: string): Express.Multer.File =>
   ({
@@ -34,6 +41,7 @@ describe('DocsService', () => {
   let txManager: { insert: jest.Mock; update: jest.Mock };
 
   beforeEach(async () => {
+    mockedParseUrl.mockReset();
     txManager = { insert: jest.fn(), update: jest.fn() };
     documentRepo = {
       save: jest.fn(),
@@ -77,10 +85,37 @@ describe('DocsService', () => {
     await expect(service.create({ source: 'file' }, undefined)).rejects.toThrow(BadRequestException);
   });
 
-  it('source=url → NotImplemented', async () => {
-    await expect(
-      service.create({ source: 'url', url: 'https://docs.riido.io/' }, undefined),
-    ).rejects.toThrow(NotImplementedException);
+  it('source=url → HTML 파싱 결과를 저장한다', async () => {
+    documentRepo.save.mockResolvedValueOnce({ id: 9, title: 'URL 문서', status: 'indexing' });
+    mockedParseUrl.mockResolvedValueOnce({
+      title: 'URL 문서',
+      sections: [
+        {
+          h1: 'URL 문서',
+          h2: null,
+          heading: 'URL 문서',
+          content: '색인 가능한 본문입니다. '.repeat(5),
+        },
+      ],
+    });
+
+    const res = await service.create({ source: 'url', url: 'https://docs.riido.io/start' }, undefined);
+
+    expect(mockedParseUrl).toHaveBeenCalledWith('https://docs.riido.io/start');
+    expect(documentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'URL 문서', sourceUrl: 'https://docs.riido.io/start' }),
+    );
+    expect(res).toEqual({
+      docId: 9,
+      title: 'URL 문서',
+      indexStatus: 'indexed',
+      message: '문서 등록이 완료되었습니다.',
+    });
+  });
+
+  it('source=url 인데 url 없음 → BadRequest', async () => {
+    await expect(service.create({ source: 'url' }, undefined)).rejects.toThrow(BadRequestException);
+    expect(mockedParseUrl).not.toHaveBeenCalled();
   });
 
   it('zero-chunk 파싱 결과 → failed 상태 업데이트 후 BadRequest', async () => {

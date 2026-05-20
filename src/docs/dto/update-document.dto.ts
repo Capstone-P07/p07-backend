@@ -1,6 +1,12 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateDocumentDto {
+  @ApiPropertyOptional({
+    description: '변경할 문서 제목입니다.',
+    example: 'Riido 시작하기 개정판',
+    maxLength: 255,
+  })
   @IsOptional()
   @IsString()
   @MinLength(1)

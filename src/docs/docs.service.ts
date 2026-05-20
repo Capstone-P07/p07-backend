@@ -3,13 +3,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  NotImplementedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Document } from './entities/document.entity';
 import { DocChunk } from './entities/doc-chunk.entity';
 import { parseMarkdown } from './parsers/markdown.parser';
+import { parseUrl } from './parsers/html.parser';
 import { chunkSections, type ParsedSection } from './parsers/chunker';
 import { CreateDocumentDto, CreateDocumentResponse } from './dto/create-document.dto';
 import {
@@ -45,9 +45,14 @@ export class DocsService {
     }
 
     if (dto.source === 'url') {
-      throw new NotImplementedException(
-        'URL 등록은 아직 지원되지 않습니다. Markdown 파일 업로드를 사용하세요.',
-      );
+      if (!dto.url) {
+        throw new BadRequestException('source=url 일 때 url 필드는 필수입니다.');
+      }
+      if (file) {
+        throw new BadRequestException('source=url 일 때 file 필드는 사용할 수 없습니다.');
+      }
+      const parsed = await parseUrl(dto.url);
+      return this.persist(dto.title ?? parsed.title, dto.url, parsed.sections);
     }
 
     throw new BadRequestException('source는 file 또는 url 이어야 합니다.');
@@ -64,11 +69,11 @@ export class DocsService {
       docs: rows.map((d) => ({
         docId: d.id,
         title: d.title,
-        source: d.sourceUrl ? 'url' : 'file',
-        sourceValue: d.sourceUrl ?? null,
+        source: this.getSourceUrl(d) ? 'url' : 'file',
+        sourceValue: this.getSourceUrl(d) ?? null,
         chunkCount: (d as Document & { chunkCount?: number }).chunkCount ?? 0,
         indexStatus: d.status,
-        updatedAt: d.updatedAt ?? d.createdAt,
+        updatedAt: this.getUpdatedAt(d) ?? this.getCreatedAt(d),
       })),
     };
   }
@@ -87,12 +92,12 @@ export class DocsService {
     return {
       docId: doc.id,
       title: doc.title,
-      source: doc.sourceUrl ? 'url' : 'file',
-      sourceValue: doc.sourceUrl ?? null,
+      source: this.getSourceUrl(doc) ? 'url' : 'file',
+      sourceValue: this.getSourceUrl(doc) ?? null,
       chunkCount: (doc as Document & { chunkCount?: number }).chunkCount ?? 0,
       indexStatus: doc.status,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt ?? doc.createdAt,
+      createdAt: this.getCreatedAt(doc),
+      updatedAt: this.getUpdatedAt(doc) ?? this.getCreatedAt(doc),
     };
   }
 
@@ -241,12 +246,26 @@ export class DocsService {
       docId: id,
       chunks: chunks.map((c) => ({
         chunkId: c.id,
-        chunkIndex: c.chunkIndex,
+        chunkIndex: c.chunkIndex ?? (c as DocChunk & { chunk_index?: number }).chunk_index,
         heading: c.heading,
         content: c.content,
-        ...(opts.includeFts ? { ftsVector: c.ftsVector } : {}),
+        ...(opts.includeFts
+          ? { ftsVector: c.ftsVector ?? (c as DocChunk & { fts_vector?: string }).fts_vector }
+          : {}),
       })),
     };
+  }
+
+  private getSourceUrl(doc: Document) {
+    return doc.sourceUrl ?? (doc as Document & { source_url?: string }).source_url;
+  }
+
+  private getCreatedAt(doc: Document) {
+    return doc.createdAt ?? (doc as Document & { created_at?: Date }).created_at;
+  }
+
+  private getUpdatedAt(doc: Document) {
+    return doc.updatedAt ?? (doc as Document & { updated_at?: Date }).updated_at;
   }
 
   private async persist(
