@@ -1,22 +1,35 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsIn, IsOptional, IsString, IsUrl, MaxLength, MinLength } from 'class-validator';
 
 export class CreateDocumentDto {
   @ApiProperty({
-    enum: ['file', 'url'],
-    description: '문서 등록 방식입니다. Markdown 파일 업로드는 file, Riido 문서 URL 등록은 url을 사용합니다.',
+    enum: ['file'],
+    description: '문서 등록 방식입니다. Markdown 파일 업로드만 지원합니다.',
     example: 'file',
   })
-  @IsIn(['file', 'url'], { message: 'source는 file 또는 url이어야 합니다.' })
+  @IsIn(['file'], { message: 'source는 file이어야 합니다.' })
   source: 'file' | 'url';
 
+  @ApiProperty({
+    description: '문서 카테고리입니다.',
+    example: '작업 관리',
+    maxLength: 20,
+  })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(20)
+  category: string;
+
   @ApiPropertyOptional({
-    description: 'source=url일 때 등록할 Riido 문서 URL입니다. https://docs.riido.io/* 만 허용됩니다.',
+    description: '문서 원본 근거 링크입니다. https://docs.riido.io/* 만 허용됩니다.',
     example: 'https://docs.riido.io/guide/getting-started',
   })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsOptional()
   @IsString()
-  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] })
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
   url?: string;
 
   @ApiPropertyOptional({
@@ -34,6 +47,7 @@ export class CreateDocumentDto {
 export interface CreateDocumentResponse {
   docId: number;
   title: string;
+  category: string;
   indexStatus: 'pending' | 'indexing' | 'indexed' | 'failed';
   message: string;
 }

@@ -71,50 +71,85 @@ describe('DocsService', () => {
     documentRepo.save.mockResolvedValueOnce({ id: 1, title: 't', status: 'indexing' });
     const md = '# 제목\n\n## 섹션\n\n' + '본문. '.repeat(30);
 
-    const res = await service.create({ source: 'file' }, makeFile(md));
+    const res = await service.create({ source: 'file', category: 'AI' }, makeFile(md));
 
     expect(documentRepo.save).toHaveBeenCalledTimes(1);
+    expect(documentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '제목', category: 'AI', sourceUrl: null }),
+    );
     expect(dataSource.transaction).toHaveBeenCalledTimes(1);
     expect(txManager.insert).toHaveBeenCalledWith(DocChunk, expect.any(Array));
     expect(txManager.update).toHaveBeenCalledWith(Document, 1, { status: 'indexed' });
-    expect(res.indexStatus).toBe('indexed');
-    expect(res.docId).toBe(1);
-  });
-
-  it('source=file 인데 file 없음 → BadRequest', async () => {
-    await expect(service.create({ source: 'file' }, undefined)).rejects.toThrow(BadRequestException);
-  });
-
-  it('source=url → HTML 파싱 결과를 저장한다', async () => {
-    documentRepo.save.mockResolvedValueOnce({ id: 9, title: 'URL 문서', status: 'indexing' });
-    mockedParseUrl.mockResolvedValueOnce({
-      title: 'URL 문서',
-      sections: [
-        {
-          h1: 'URL 문서',
-          h2: null,
-          heading: 'URL 문서',
-          content: '색인 가능한 본문입니다. '.repeat(5),
-        },
-      ],
-    });
-
-    const res = await service.create({ source: 'url', url: 'https://docs.riido.io/start' }, undefined);
-
-    expect(mockedParseUrl).toHaveBeenCalledWith('https://docs.riido.io/start');
-    expect(documentRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'URL 문서', sourceUrl: 'https://docs.riido.io/start' }),
-    );
     expect(res).toEqual({
-      docId: 9,
-      title: 'URL 문서',
+      docId: 1,
+      title: '제목',
+      category: 'AI',
       indexStatus: 'indexed',
       message: '문서 등록이 완료되었습니다.',
     });
   });
 
-  it('source=url 인데 url 없음 → BadRequest', async () => {
-    await expect(service.create({ source: 'url' }, undefined)).rejects.toThrow(BadRequestException);
+  it('source=file 인데 file 없음 → BadRequest', async () => {
+    await expect(service.create({ source: 'file', category: 'AI' }, undefined)).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('category가 없거나 비어 있으면 BadRequest', async () => {
+    const md = '# 제목\n\n## 섹션\n\n' + '본문. '.repeat(30);
+
+    await expect(service.create({ source: 'file' }, makeFile(md))).rejects.toThrow(
+      BadRequestException,
+    );
+    await expect(service.create({ source: 'file', category: '   ' }, makeFile(md))).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(documentRepo.save).not.toHaveBeenCalled();
+  });
+
+  it('file 업로드에서 docs.riido.io URL은 sourceUrl로 저장한다', async () => {
+    documentRepo.save.mockResolvedValueOnce({ id: 9, title: 'URL 문서', status: 'indexing' });
+    const md = '# URL 문서\n\n## 섹션\n\n' + '색인 가능한 본문입니다. '.repeat(5);
+
+    const res = await service.create(
+      { source: 'file', category: 'AI', url: 'https://docs.riido.io/start' },
+      makeFile(md),
+    );
+
+    expect(mockedParseUrl).not.toHaveBeenCalled();
+    expect(documentRepo.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'URL 문서',
+        category: 'AI',
+        sourceUrl: 'https://docs.riido.io/start',
+      }),
+    );
+    expect(res).toEqual({
+      docId: 9,
+      title: 'URL 문서',
+      category: 'AI',
+      indexStatus: 'indexed',
+      message: '문서 등록이 완료되었습니다.',
+    });
+  });
+
+  it('docs.riido.io가 아닌 URL은 BadRequest', async () => {
+    const md = '# 제목\n\n## 섹션\n\n' + '본문. '.repeat(30);
+
+    await expect(
+      service.create(
+        { source: 'file', category: 'AI', url: 'https://example.com/start' },
+        makeFile(md),
+      ),
+    ).rejects.toThrow(BadRequestException);
+    expect(documentRepo.save).not.toHaveBeenCalled();
+    expect(mockedParseUrl).not.toHaveBeenCalled();
+  });
+
+  it('source=url 등록 경로는 BadRequest', async () => {
+    await expect(
+      service.create({ source: 'url', category: 'AI', url: 'https://docs.riido.io/start' }, undefined),
+    ).rejects.toThrow(BadRequestException);
     expect(mockedParseUrl).not.toHaveBeenCalled();
   });
 
@@ -123,8 +158,68 @@ describe('DocsService', () => {
     // 본문 없이 제목만 → 섹션 empty 또는 minChars 미달
     const md = '# 제목만';
 
-    await expect(service.create({ source: 'file' }, makeFile(md))).rejects.toThrow(BadRequestException);
+    await expect(service.create({ source: 'file', category: 'AI' }, makeFile(md))).rejects.toThrow(
+      BadRequestException,
+    );
     expect(documentRepo.update).toHaveBeenCalledWith(7, { status: 'failed' });
+  });
+
+  describe('findAll', () => {
+    it('응답에 문서별 실제 category를 포함한다', async () => {
+      const qb = {
+        loadRelationCountAndMap: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          {
+            id: 3,
+            title: 'AI 기능',
+            source_url: 'https://docs.riido.io/ai',
+            category: 'AI',
+            status: 'indexed',
+            updated_at: new Date('2026-04-24T07:00:00Z'),
+            created_at: new Date('2026-04-24T06:00:00Z'),
+            chunkCount: 4,
+          },
+          {
+            id: 4,
+            title: '기존 문서',
+            source_url: null,
+            category: null,
+            status: 'pending',
+            updated_at: null,
+            created_at: new Date('2026-04-24T08:00:00Z'),
+            chunkCount: 0,
+          },
+        ]),
+      };
+      documentRepo.createQueryBuilder.mockReturnValue(qb);
+
+      const res = await service.findAll();
+
+      expect(qb.orderBy).toHaveBeenCalledWith('d.created_at', 'DESC');
+      expect(res.docs).toEqual([
+        {
+          docId: 3,
+          title: 'AI 기능',
+          category: 'AI',
+          source: 'url',
+          sourceValue: 'https://docs.riido.io/ai',
+          chunkCount: 4,
+          indexStatus: 'indexed',
+          updatedAt: new Date('2026-04-24T07:00:00Z'),
+        },
+        {
+          docId: 4,
+          title: '기존 문서',
+          category: null,
+          source: 'file',
+          sourceValue: null,
+          chunkCount: 0,
+          indexStatus: 'pending',
+          updatedAt: new Date('2026-04-24T08:00:00Z'),
+        },
+      ]);
+    });
   });
 
   describe('findOne', () => {
@@ -136,6 +231,7 @@ describe('DocsService', () => {
           id: 2,
           title: '12_백로그',
           source_url: null,
+          category: '작업 관리',
           status: 'indexed',
           created_at: new Date('2026-04-24T06:00:00Z'),
           updated_at: new Date('2026-04-24T06:30:00Z'),
@@ -150,6 +246,7 @@ describe('DocsService', () => {
       expect(res).toEqual({
         docId: 2,
         title: '12_백로그',
+        category: '작업 관리',
         source: 'file',
         sourceValue: null,
         chunkCount: 8,
