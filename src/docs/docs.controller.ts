@@ -51,13 +51,18 @@ const MARKDOWN_UPLOAD_OPTIONS = {
 const DOCUMENT_FORM_SCHEMA = {
   schema: {
     type: 'object',
-    required: ['source'],
+    required: ['source', 'category', 'file'],
     properties: {
       source: {
         type: 'string',
-        enum: ['file', 'url'],
-        description: 'file은 Markdown 업로드, url은 docs.riido.io 문서 등록입니다.',
+        enum: ['file'],
+        description: 'Markdown 파일 업로드만 지원합니다.',
         example: 'file',
+      },
+      category: {
+        type: 'string',
+        description: '문서 카테고리입니다.',
+        example: '작업 관리',
       },
       title: {
         type: 'string',
@@ -66,13 +71,13 @@ const DOCUMENT_FORM_SCHEMA = {
       },
       url: {
         type: 'string',
-        description: 'source=url일 때 등록할 https://docs.riido.io/* URL입니다.',
+        description: '문서 원본 근거 링크입니다. https://docs.riido.io/* 만 허용됩니다.',
         example: 'https://docs.riido.io/guide/getting-started',
       },
       file: {
         type: 'string',
         format: 'binary',
-        description: 'source=file일 때 업로드할 Markdown(.md) 파일입니다.',
+        description: '업로드할 Markdown(.md) 파일입니다.',
       },
     },
   },
@@ -102,7 +107,7 @@ export class DocsController {
   constructor(private readonly docsService: DocsService) {}
 
   @Post()
-  @ApiOperation({ summary: '문서 등록', description: 'Markdown 파일 또는 docs.riido.io URL을 등록하고 색인합니다.' })
+  @ApiOperation({ summary: '문서 등록', description: 'Markdown 파일을 등록하고 선택한 원본 URL을 근거 링크로 저장합니다.' })
   @ApiConsumes('multipart/form-data')
   @ApiBody(DOCUMENT_FORM_SCHEMA)
   @ApiOkResponse({ description: '등록된 문서 ID와 색인 상태를 반환합니다.' })

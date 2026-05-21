@@ -9,7 +9,6 @@ import { DataSource, Repository } from 'typeorm';
 import { Document } from './entities/document.entity';
 import { DocChunk } from './entities/doc-chunk.entity';
 import { parseMarkdown } from './parsers/markdown.parser';
-import { parseUrl } from './parsers/html.parser';
 import { chunkSections, type ParsedSection } from './parsers/chunker';
 import { CreateDocumentDto, CreateDocumentResponse } from './dto/create-document.dto';
 import {
@@ -35,27 +34,20 @@ export class DocsService {
     dto: CreateDocumentDto,
     file?: Express.Multer.File,
   ): Promise<CreateDocumentResponse> {
-    if (dto.source === 'file') {
-      if (!file) {
-        throw new BadRequestException('source=file 일 때 file 필드는 필수입니다.');
-      }
-      const text = file.buffer.toString('utf-8');
-      const parsed = parseMarkdown(text);
-      return this.persist(dto.title ?? parsed.title, dto.url ?? null, parsed.sections);
+    const category = this.normalizeCategory(dto.category);
+
+    if (dto.source !== 'file') {
+      throw new BadRequestException('문서 등록은 Markdown 파일 업로드만 지원합니다.');
     }
 
-    if (dto.source === 'url') {
-      if (!dto.url) {
-        throw new BadRequestException('source=url 일 때 url 필드는 필수입니다.');
-      }
-      if (file) {
-        throw new BadRequestException('source=url 일 때 file 필드는 사용할 수 없습니다.');
-      }
-      const parsed = await parseUrl(dto.url);
-      return this.persist(dto.title ?? parsed.title, dto.url, parsed.sections);
+    if (!file) {
+      throw new BadRequestException('source=file 일 때 file 필드는 필수입니다.');
     }
 
-    throw new BadRequestException('source는 file 또는 url 이어야 합니다.');
+    const sourceUrl = this.normalizeSourceUrl(dto.url);
+    const text = file.buffer.toString('utf-8');
+    const parsed = parseMarkdown(text);
+    return this.persist(dto.title ?? parsed.title, category, sourceUrl, parsed.sections);
   }
 
   async findAll() {
@@ -69,6 +61,7 @@ export class DocsService {
       docs: rows.map((d) => ({
         docId: d.id,
         title: d.title,
+        category: this.getCategory(d),
         source: this.getSourceUrl(d) ? 'url' : 'file',
         sourceValue: this.getSourceUrl(d) ?? null,
         chunkCount: (d as Document & { chunkCount?: number }).chunkCount ?? 0,
@@ -92,6 +85,7 @@ export class DocsService {
     return {
       docId: doc.id,
       title: doc.title,
+      category: this.getCategory(doc),
       source: this.getSourceUrl(doc) ? 'url' : 'file',
       sourceValue: this.getSourceUrl(doc) ?? null,
       chunkCount: (doc as Document & { chunkCount?: number }).chunkCount ?? 0,
@@ -260,6 +254,10 @@ export class DocsService {
     return doc.sourceUrl ?? (doc as Document & { source_url?: string }).source_url;
   }
 
+  private getCategory(doc: Document) {
+    return doc.category ?? (doc as Document & { category?: string | null }).category ?? null;
+  }
+
   private getCreatedAt(doc: Document) {
     return doc.createdAt ?? (doc as Document & { created_at?: Date }).created_at;
   }
@@ -270,12 +268,14 @@ export class DocsService {
 
   private async persist(
     title: string,
+    category: string,
     sourceUrl: string | null,
     sections: ParsedSection[],
   ): Promise<CreateDocumentResponse> {
     const doc = await this.documentRepo.save(
       this.documentRepo.create({
         title,
+        category,
         sourceUrl: sourceUrl,
         status: 'indexing',
       }),
@@ -307,6 +307,7 @@ export class DocsService {
       return {
         docId: doc.id,
         title,
+        category,
         indexStatus: 'indexed',
         message: '문서 등록이 완료되었습니다.',
       };
@@ -319,5 +320,36 @@ export class DocsService {
       }
       throw err;
     }
+  }
+
+  private normalizeCategory(category?: string) {
+    const normalized = category?.trim();
+    if (!normalized) {
+      throw new BadRequestException('category 필드는 필수입니다.');
+    }
+    if (normalized.length > 20) {
+      throw new BadRequestException('category는 20자 이하여야 합니다.');
+    }
+    return normalized;
+  }
+
+  private normalizeSourceUrl(url?: string) {
+    const normalized = url?.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(normalized);
+    } catch {
+      throw new BadRequestException('url은 올바른 URL이어야 합니다.');
+    }
+
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'docs.riido.io') {
+      throw new BadRequestException('url은 https://docs.riido.io/* 형식만 허용됩니다.');
+    }
+
+    return normalized;
   }
 }
