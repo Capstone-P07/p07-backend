@@ -33,26 +33,29 @@ describe('DocsService', () => {
     save: jest.Mock;
     create: jest.Mock;
     update: jest.Mock;
+    findOne: jest.Mock;
     createQueryBuilder: jest.Mock;
     exist: jest.Mock;
   };
   let chunkRepo: { save: jest.Mock; createQueryBuilder: jest.Mock };
-  let dataSource: { transaction: jest.Mock };
-  let txManager: { insert: jest.Mock; update: jest.Mock };
+  let dataSource: { transaction: jest.Mock; query: jest.Mock };
+  let txManager: { delete: jest.Mock; insert: jest.Mock; update: jest.Mock };
 
   beforeEach(async () => {
     mockedParseUrl.mockReset();
-    txManager = { insert: jest.fn(), update: jest.fn() };
+    txManager = { delete: jest.fn(), insert: jest.fn(), update: jest.fn() };
     documentRepo = {
       save: jest.fn(),
       create: jest.fn((x) => x),
       update: jest.fn(),
+      findOne: jest.fn(),
       createQueryBuilder: jest.fn(),
       exist: jest.fn(),
     };
     chunkRepo = { save: jest.fn(), createQueryBuilder: jest.fn() };
     dataSource = {
       transaction: jest.fn(async (cb: (m: typeof txManager) => Promise<unknown>) => cb(txManager)),
+      query: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -223,7 +226,7 @@ describe('DocsService', () => {
   });
 
   describe('findOne', () => {
-    it('happy path: 응답에 docId/title/source/chunkCount/indexStatus 매핑', async () => {
+    it('happy path: 응답에 docId/title/source/chunkCount/indexStatus와 chunk 기반 markdown 매핑', async () => {
       const qb = {
         loadRelationCountAndMap: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
@@ -239,10 +242,21 @@ describe('DocsService', () => {
         }),
       };
       documentRepo.createQueryBuilder.mockReturnValue(qb);
+      const chunkQb = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          { id: 10, chunk_index: 0, heading: '12_백로그 > 개요', content: '백로그 본문입니다.' },
+          { id: 11, chunk_index: 1, heading: '12_백로그 > 생성', content: '생성 본문입니다.' },
+        ]),
+      };
+      chunkRepo.createQueryBuilder.mockReturnValue(chunkQb);
 
       const res = await service.findOne(2);
 
       expect(qb.where).toHaveBeenCalledWith('d.id = :id', { id: 2 });
+      expect(chunkQb.orderBy).toHaveBeenCalledWith('c.chunk_index', 'ASC');
       expect(res).toEqual({
         docId: 2,
         title: '12_백로그',
@@ -253,6 +267,8 @@ describe('DocsService', () => {
         indexStatus: 'indexed',
         createdAt: new Date('2026-04-24T06:00:00Z'),
         updatedAt: new Date('2026-04-24T06:30:00Z'),
+        markdown:
+          '# 12_백로그\n\n## 개요\n\n백로그 본문입니다.\n\n# 12_백로그\n\n## 생성\n\n생성 본문입니다.',
       });
     });
 
@@ -265,6 +281,96 @@ describe('DocsService', () => {
       documentRepo.createQueryBuilder.mockReturnValue(qb);
 
       await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('update', () => {
+    it('title/category만 바꾸면 청크를 교체하지 않고 메타데이터만 갱신한다', async () => {
+      documentRepo.findOne.mockResolvedValue({
+        id: 5,
+        title: '기존 문서',
+        category: '기존 카테고리',
+        status: 'indexed',
+      });
+
+      const res = await service.update(5, { title: '수정 문서', category: 'AI' });
+
+      expect(documentRepo.update).toHaveBeenCalledTimes(1);
+      expect(documentRepo.update).toHaveBeenCalledWith(
+        5,
+        expect.objectContaining({ title: '수정 문서', category: 'AI' }),
+      );
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(txManager.delete).not.toHaveBeenCalled();
+      expect(res).toEqual({
+        docId: 5,
+        title: '수정 문서',
+        indexStatus: 'indexed',
+        message: '문서 메타데이터가 수정되었습니다.',
+      });
+    });
+
+    it('markdown이 있으면 file보다 우선해 기존 청크를 새 청크로 교체한다', async () => {
+      documentRepo.findOne.mockResolvedValue({
+        id: 6,
+        title: '기존 문서',
+        category: '기존 카테고리',
+        status: 'indexed',
+      });
+      const markdown = '# 마크다운 제목\n\n## 본문\n\n' + '마크다운 본문입니다. '.repeat(5);
+      const file = makeFile('# 파일 제목\n\n## 본문\n\n' + '파일 본문입니다. '.repeat(5));
+
+      const res = await service.update(6, { category: '가이드', markdown }, file);
+
+      expect(documentRepo.update).toHaveBeenCalledWith(
+        6,
+        expect.objectContaining({ status: 'indexing' }),
+      );
+      expect(txManager.delete).toHaveBeenCalledWith(DocChunk, { docId: 6 });
+      expect(txManager.insert).toHaveBeenCalledWith(
+        DocChunk,
+        expect.arrayContaining([
+          expect.objectContaining({
+            docId: 6,
+            heading: '마크다운 제목 > 본문',
+            content: expect.stringContaining('마크다운 본문입니다.'),
+          }),
+        ]),
+      );
+      expect(txManager.insert).not.toHaveBeenCalledWith(
+        DocChunk,
+        expect.arrayContaining([
+          expect.objectContaining({ content: expect.stringContaining('파일 본문입니다.') }),
+        ]),
+      );
+      expect(txManager.update).toHaveBeenCalledWith(
+        Document,
+        6,
+        expect.objectContaining({ title: '마크다운 제목', category: '가이드', status: 'indexed' }),
+      );
+      expect(res).toEqual({
+        docId: 6,
+        title: '마크다운 제목',
+        indexStatus: 'indexed',
+        message: '문서 수정이 완료되었습니다. 재색인이 진행 중입니다.',
+      });
+    });
+
+    it('색인 가능한 markdown이 아니면 기존 청크 교체 transaction을 실행하지 않는다', async () => {
+      documentRepo.findOne.mockResolvedValue({
+        id: 7,
+        title: '기존 문서',
+        category: '기존 카테고리',
+        status: 'indexed',
+      });
+
+      await expect(service.update(7, { markdown: '# 제목만' })).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+      expect(txManager.delete).not.toHaveBeenCalled();
+      expect(documentRepo.update).not.toHaveBeenCalled();
     });
   });
 
