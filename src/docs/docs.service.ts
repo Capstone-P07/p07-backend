@@ -82,6 +82,8 @@ export class DocsService {
       throw new NotFoundException(`Document ${id} not found`);
     }
 
+    const markdown = await this.buildMarkdownFromChunks(id);
+
     return {
       docId: doc.id,
       title: doc.title,
@@ -92,6 +94,7 @@ export class DocsService {
       indexStatus: doc.status,
       createdAt: this.getCreatedAt(doc),
       updatedAt: this.getUpdatedAt(doc) ?? this.getCreatedAt(doc),
+      markdown,
     };
   }
 
@@ -105,9 +108,18 @@ export class DocsService {
       throw new NotFoundException(`Document ${id} not found`);
     }
 
-    // 파일 교체가 없으면 메타데이터(title)만 갱신
-    if (!file) {
-      if (dto.title === undefined) {
+    const hasMarkdown = dto.markdown !== undefined;
+    const replacementText = hasMarkdown
+      ? dto.markdown
+      : file
+        ? file.buffer.toString('utf-8')
+        : undefined;
+    const newCategory =
+      dto.category !== undefined ? this.normalizeCategory(dto.category) : this.getCategory(doc);
+
+    // 본문 교체가 없으면 메타데이터(title/category)만 갱신
+    if (replacementText === undefined) {
+      if (dto.title === undefined && dto.category === undefined) {
         return {
           docId: doc.id,
           title: doc.title,
@@ -115,18 +127,22 @@ export class DocsService {
           message: '변경 사항이 없습니다.',
         };
       }
-      await this.documentRepo.update(id, { title: dto.title, updatedAt: new Date() });
+      const newTitle = dto.title ?? doc.title;
+      await this.documentRepo.update(id, {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.category !== undefined ? { category: newCategory } : {}),
+        updatedAt: new Date(),
+      });
       return {
         docId: id,
-        title: dto.title,
+        title: newTitle,
         indexStatus: doc.status,
-        message: '문서 제목이 수정되었습니다.',
+        message: '문서 메타데이터가 수정되었습니다.',
       };
     }
 
-    // 파일 교체 → 기존 청크 삭제 + 재파싱/재청킹
-    const text = file.buffer.toString('utf-8');
-    const parsed = parseMarkdown(text);
+    // Markdown 본문 또는 파일 교체 → 기존 청크 삭제 + 재파싱/재청킹
+    const parsed = parseMarkdown(replacementText);
     const chunks = chunkSections(parsed.sections);
     if (chunks.length === 0) {
       throw new BadRequestException('문서에서 색인 가능한 텍스트를 찾지 못했습니다.');
@@ -149,6 +165,7 @@ export class DocsService {
         );
         await m.update(Document, id, {
           title: newTitle,
+          category: newCategory,
           status: 'indexed',
           updatedAt: new Date(),
         });
@@ -264,6 +281,51 @@ export class DocsService {
 
   private getUpdatedAt(doc: Document) {
     return doc.updatedAt ?? (doc as Document & { updated_at?: Date }).updated_at;
+  }
+
+  private async buildMarkdownFromChunks(docId: number) {
+    const chunks = await this.chunkRepo
+      .createQueryBuilder('c')
+      .select(['c.id', 'c.chunk_index', 'c.heading', 'c.content'])
+      .where('c.doc_id = :id', { id: docId })
+      .orderBy('c.chunk_index', 'ASC')
+      .getMany();
+
+    const parts: string[] = [];
+    let previousHeading: string | null = null;
+
+    for (const chunk of chunks) {
+      const heading = this.getChunkHeading(chunk);
+      if (heading && heading !== previousHeading) {
+        parts.push(this.headingToMarkdown(heading));
+      }
+
+      const content = this.getChunkContent(chunk).trim();
+      if (content) {
+        parts.push(content);
+      }
+
+      previousHeading = heading;
+    }
+
+    return parts.join('\n\n').trim();
+  }
+
+  private headingToMarkdown(heading: string) {
+    return heading
+      .split(' > ')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .map((part, index) => `${'#'.repeat(Math.min(index + 1, 6))} ${part}`)
+      .join('\n\n');
+  }
+
+  private getChunkHeading(chunk: DocChunk) {
+    return chunk.heading ?? (chunk as DocChunk & { heading?: string | null }).heading ?? null;
+  }
+
+  private getChunkContent(chunk: DocChunk) {
+    return chunk.content ?? (chunk as DocChunk & { content?: string | null }).content ?? '';
   }
 
   private async persist(

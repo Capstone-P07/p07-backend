@@ -92,6 +92,16 @@ const DOCUMENT_UPDATE_FORM_SCHEMA = {
         description: '변경할 문서 제목입니다.',
         example: 'Riido 시작하기 개정판',
       },
+      category: {
+        type: 'string',
+        description: '변경할 문서 카테고리입니다.',
+        example: '작업 관리',
+      },
+      markdown: {
+        type: 'string',
+        description: '교체할 문서 본문 Markdown입니다. file과 함께 전달되면 markdown이 우선합니다.',
+        example: '# Riido 시작하기\n\n## 개요\n\nRiido 서비스 가이드 본문입니다.',
+      },
       file: {
         type: 'string',
         format: 'binary',
