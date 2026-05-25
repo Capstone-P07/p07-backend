@@ -34,9 +34,12 @@ export class ChatService {
           sessionId,
         });
 
-        const chunks = searchResult.data.chunks.filter(
-          (chunk: any) => chunk.score > 0.01
-        );
+        const allChunks = searchResult.data.chunks;
+
+        const chunks = allChunks.length > 0
+        ? allChunks.filter(
+          (chunk: any) => chunk.score >= allChunks[0].score * 0.3 //상대 임계값 적용
+        ) : [];
 
         const previousLogs = await this.chatLogRepo.find({
           where: { sessionId },
