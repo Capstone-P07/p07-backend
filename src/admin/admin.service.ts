@@ -130,12 +130,12 @@ export class AdminService {
       { date: string; thumbUp: string; thumbDown: string }[]
     >(`
       SELECT
-        DATE_TRUNC('day', created_at)::date AS date,
+        TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date,
         COUNT(*) FILTER (WHERE rating = 'thumb_up')  AS "thumbUp",
         COUNT(*) FILTER (WHERE rating = 'thumb_down') AS "thumbDown"
       FROM feedback
       ${whereClause}
-      GROUP BY DATE_TRUNC('day', created_at)
+      GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
       ORDER BY date ASC
     `);
 
@@ -347,7 +347,7 @@ export class AdminService {
     return [...allDates]
       .sort()  // YYYY-MM-DD 형식이라 문자열 정렬로 날짜 순서 맞음
       .map((date: string) => ({
-        date: `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`,
+        date: date,
         success: successMap.get(date) ?? 0,
         failure: failureMap.get(date) ?? 0,
       }));
