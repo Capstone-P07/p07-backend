@@ -77,11 +77,24 @@ export class ChatService {
             ]);
 
             if (type === 'no_document') {
-              await this.unansweredRepo.save({
-                question: normalizedQuery,
-                reason: 'no_document',
-                status: 'unresolved',
+              
+              const existing = await this.unansweredRepo.findOne({
+                where: { question: normalizedQuery }
               });
+
+              if (existing) {
+                await this.unansweredRepo.update(existing.id, {
+                  frequency: existing.frequency + 1,
+                  updatedAt: new Date(),
+                });
+              } else {
+                await this.unansweredRepo.save({
+                  question: normalizedQuery,
+                  reason: 'no_document',
+                  status: 'unresolved',
+                  frequency: 1,
+                });
+              }
             }
 
             subject.next({data: {type: 'done', references}});
