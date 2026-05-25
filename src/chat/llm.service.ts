@@ -63,6 +63,7 @@ export class LlmService {
     const stream = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       stream: true,
+      temperature: 0.0, //창의적 생성 억제
       messages: [
         {
           role: 'system',
@@ -122,24 +123,30 @@ ${context || '(관련 문서 없음)'}`,
       if (!headerStripped && fullText.length < 30) continue;
 
       if (!headerStripped) {
-        if (fullText.startsWith('[OUT_OF_SCOPE]')) {
+        if (fullText.includes('[OUT_OF_SCOPE]')) {
           type = 'out_of_scope';
-        } else if (fullText.startsWith('[NO_DOCUMENT]')) {
+        } else if (fullText.includes('[NO_DOCUMENT]')) {
           type = 'no_document';
         } else {
           type = 'success';
         }
 
         const cleaned = fullText
-          .replace('[OUT_OF_SCOPE]\n', '')
-          .replace('[NO_DOCUMENT]\n', '')
-          .replace('[SUCCESS]\n', '');
+          .replace(/\[OUT_OF_SCOPE\]\n{0,2}/g, '')
+          .replace(/\[NO_DOCUMENT\]\n{0,2}/g, '')
+          .replace(/\[SUCCESS\]\n{0,2}/g, '');
+
         headerStripped = true;
-        if (cleaned) onChunk(cleaned);
+        if (cleaned.trim()) onChunk(cleaned);
         continue;
       }
 
-      onChunk(text);
+      const safeText = text
+        .replace(/\[SUCCESS\]/g, '')
+        .replace(/\[OUT_OF_SCOPE\]/g, '')
+        .replace(/\[NO_DOCUMENT\]/g, '');
+
+      if(safeText) onChunk(safeText);
     }
 
     await onDone(type);
