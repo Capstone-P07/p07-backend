@@ -84,4 +84,12 @@ export class AdminController {
     const data = await this.adminService.updateUnansweredStatus(id, dto);
     return { success: true, data, error: null };
   }
+  
+  @Get('stats/daily')
+  @ApiOperation({ summary: '일별 질문 수 추이 조회' })
+  @ApiQuery({ name: 'period', required: false })
+  async getDailyStats(@Query('period') period?: string) {
+    const data = await this.adminService.getDailyStats(period);
+    return { success: true, data, error: null };
+  }
 }
