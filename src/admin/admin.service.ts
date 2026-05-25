@@ -310,4 +310,46 @@ export class AdminService {
       updatedAt: saved.updatedAt,
     };
   }
+  
+  async getDailyStats(period?: string) {
+    const now = new Date();
+    const from = new Date();
+    if (period === 'today') from.setHours(0, 0, 0, 0);
+    else if (period === '7d') from.setDate(now.getDate() - 7);
+    else if (period === '30d') from.setDate(now.getDate() - 30);
+    else from.setFullYear(2000);
+
+    const successRows = await this.dataSource.query(
+      `SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date, 
+      COUNT(*) AS success
+      FROM chat_logs
+      WHERE role = 'user' AND created_at BETWEEN $1 AND $2
+      GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
+      ORDER BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul') ASC`,
+      [from, now],
+    );
+
+    const failureRows = await this.dataSource.query(
+      `SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date,
+      COUNT(*) AS failure
+      FROM unanswered_questions
+      WHERE created_at BETWEEN $1 AND $2
+      GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
+      ORDER BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul') ASC`,
+      [from, now],
+    );
+
+    const successMap = new Map<string, number>(successRows.map((r: any) => [String(r.date), Number(r.success)]));
+    const failureMap = new Map<string, number>(failureRows.map((r: any) => [String(r.date), Number(r.failure)]));
+
+    const allDates = new Set<string>([...successMap.keys(), ...failureMap.keys()]);
+
+    return [...allDates]
+      .sort()  // YYYY-MM-DD 형식이라 문자열 정렬로 날짜 순서 맞음
+      .map((date: string) => ({
+        date: `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`,
+        success: successMap.get(date) ?? 0,
+        failure: failureMap.get(date) ?? 0,
+      }));
+    }
 }
