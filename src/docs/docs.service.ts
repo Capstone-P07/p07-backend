@@ -292,31 +292,53 @@ export class DocsService {
       .getMany();
 
     const parts: string[] = [];
-    let previousHeading: string | null = null;
+    let previousHeadingParts: string[] = [];
 
     for (const chunk of chunks) {
       const heading = this.getChunkHeading(chunk);
-      if (heading && heading !== previousHeading) {
-        parts.push(this.headingToMarkdown(heading));
+      const headingParts = heading ? this.splitHeadingParts(heading) : [];
+      if (headingParts.length > 0) {
+        const sharedPrefixLength = this.getSharedPrefixLength(previousHeadingParts, headingParts);
+        if (sharedPrefixLength < headingParts.length) {
+          parts.push(this.headingPartsToMarkdown(headingParts, sharedPrefixLength));
+        }
+        previousHeadingParts = headingParts;
+      } else {
+        previousHeadingParts = [];
       }
 
       const content = this.getChunkContent(chunk).trim();
       if (content) {
         parts.push(content);
       }
-
-      previousHeading = heading;
     }
 
     return parts.join('\n\n').trim();
   }
 
-  private headingToMarkdown(heading: string) {
+  private splitHeadingParts(heading: string) {
     return heading
       .split(' > ')
       .map((part) => part.trim())
-      .filter((part) => part.length > 0)
-      .map((part, index) => `${'#'.repeat(Math.min(index + 1, 6))} ${part}`)
+      .filter((part) => part.length > 0);
+  }
+
+  private getSharedPrefixLength(previousParts: string[], currentParts: string[]) {
+    let length = 0;
+    while (
+      length < previousParts.length &&
+      length < currentParts.length &&
+      previousParts[length] === currentParts[length]
+    ) {
+      length += 1;
+    }
+    return length;
+  }
+
+  private headingPartsToMarkdown(parts: string[], startIndex = 0) {
+    return parts
+      .slice(startIndex)
+      .map((part, index) => `${'#'.repeat(Math.min(startIndex + index + 1, 6))} ${part}`)
       .join('\n\n');
   }
 

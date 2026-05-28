@@ -9,25 +9,36 @@ export class LlmService {
 
   async normalizeQuestion(question: string): Promise<string> {
     try {
-      const response = await this.openai.chat.completions.create({
+      const openai = this.getClient();
+      const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         stream: false,
         messages: [
           {
             role: 'system',
-            content: `당신은 검색 쿼리 최적화 전문가입니다.
-사용자의 질문을 핵심 키워드 중심의 간결한 검색 쿼리로 변환하세요.
+            content: `당신은 PostgreSQL 한국어 FTS 검색 쿼리 정규화 전문가입니다.
+사용자의 질문을 Riido 가이드 문서 검색에 적합한 핵심 키워드로 변환하세요.
 
 규칙:
-- 불필요한 조사, 어미, 인사말 제거
-- 핵심 명사/동사 위주로 2~5개 단어로 압축
-- 한국어로 변환하되 영어 고유명사(제품명, 기술명 등)는 그대로 유지
-- 오직 변환된 쿼리만 출력 (설명 없이)
+- 출력은 설명 없는 한 줄 키워드만 작성하세요.
+- 불필요한 조사, 어미, 인사말은 제거하세요.
+- 복합 질문은 핵심 항목을 모두 보존하세요.
+- 핵심 명사/동사 위주로 간결하게 압축하세요.
+- 과한 추측 키워드나 문서에 없을 법한 확장어는 추가하지 마세요.
+- 한국어 중심으로 작성하되 영어 고유명사와 기술명은 유지하세요.
+- 선별 동의어만 확장하세요.
+  - 팀원 → 팀원 멤버
+  - 깃헙/깃허브 → GitHub 깃허브
+  - OS → 운영체제 OS
+  - 다운로드 → 다운로드 설치
+  - 요금/가격 → 구독 결제 요금
 
 예시:
 - "멤버를 초대하려면 어떻게 해야 하나요?" → "멤버 초대 방법"
 - "스프린트 시작하는 법 알려줘" → "스프린트 시작"
-- "깃허브 연동은 어떻게 하나요?" → "깃허브 연동"
+- "깃허브 연동은 어떻게 하나요?" → "GitHub 깃허브 연동"
+- "다운로드 방법이랑 지원 OS를 같이 알려줘" → "다운로드 설치 지원 OS 운영체제"
+- "팀원 권한 뭐뭐 있어?" → "팀원 멤버 권한"
 - "llm이 뭐야?" → "llm 설명"`,
           },
           {
