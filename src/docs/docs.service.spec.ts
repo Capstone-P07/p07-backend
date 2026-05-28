@@ -268,8 +268,65 @@ describe('DocsService', () => {
         createdAt: new Date('2026-04-24T06:00:00Z'),
         updatedAt: new Date('2026-04-24T06:30:00Z'),
         markdown:
-          '# 12_백로그\n\n## 개요\n\n백로그 본문입니다.\n\n# 12_백로그\n\n## 생성\n\n생성 본문입니다.',
+          '# 12_백로그\n\n## 개요\n\n백로그 본문입니다.\n\n## 생성\n\n생성 본문입니다.',
       });
+    });
+
+    it('공유 heading path는 반복 출력하지 않고 변경된 하위 heading만 복원한다', async () => {
+      const qb = {
+        loadRelationCountAndMap: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue({
+          id: 3,
+          title: '멤버',
+          source_url: null,
+          category: '권한 관리',
+          status: 'indexed',
+          created_at: new Date('2026-04-24T06:00:00Z'),
+          updated_at: new Date('2026-04-24T06:30:00Z'),
+          chunkCount: 4,
+        }),
+      };
+      documentRepo.createQueryBuilder.mockReturnValue(qb);
+      const chunkQb = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          { id: 20, chunk_index: 0, heading: '멤버 > 개요', content: '개요 본문입니다.' },
+          { id: 21, chunk_index: 1, heading: '멤버 > 권한', content: '권한 본문입니다.' },
+          {
+            id: 22,
+            chunk_index: 2,
+            heading: '멤버 > 권한 > 관리자',
+            content: '관리자 본문입니다.',
+          },
+          {
+            id: 23,
+            chunk_index: 3,
+            heading: '멤버 > 권한 > 멤버',
+            content: '멤버 본문입니다.',
+          },
+        ]),
+      };
+      chunkRepo.createQueryBuilder.mockReturnValue(chunkQb);
+
+      const res = await service.findOne(3);
+
+      expect(res.markdown).toBe(
+        '# 멤버\n\n## 개요\n\n개요 본문입니다.\n\n## 권한\n\n권한 본문입니다.\n\n### 관리자\n\n관리자 본문입니다.\n\n### 멤버\n\n멤버 본문입니다.',
+      );
+      expect(res.markdown.match(/^# 멤버$/gm)).toHaveLength(1);
+      expect(res.markdown.match(/^## 권한$/gm)).toHaveLength(1);
+      expect(res.markdown.indexOf('개요 본문입니다.')).toBeLessThan(
+        res.markdown.indexOf('권한 본문입니다.'),
+      );
+      expect(res.markdown.indexOf('권한 본문입니다.')).toBeLessThan(
+        res.markdown.indexOf('관리자 본문입니다.'),
+      );
+      expect(res.markdown.indexOf('관리자 본문입니다.')).toBeLessThan(
+        res.markdown.indexOf('멤버 본문입니다.'),
+      );
     });
 
     it('없는 docId → NotFoundException', async () => {
