@@ -32,7 +32,7 @@ export class ChatService {
           query: normalizedQuery,
           topK: 5,
           sessionId,
-        });
+        }, { includeContext: true });
 
         const allChunks = searchResult.data.chunks;
 
