@@ -32,7 +32,7 @@ export class ChatService {
           query: normalizedQuery,
           topK: 5,
           sessionId,
-        });
+        }, { includeContext: true });
 
         const allChunks = searchResult.data.chunks;
 
@@ -73,7 +73,7 @@ export class ChatService {
 
             await this.chatLogRepo.save([
               { sessionId, userId, message: question, role: 'user' },
-              { sessionId, userId, message: assistantMessage, referencesJson: references, role: 'assistant' },
+              { sessionId, userId, message: assistantMessage, referencesJson: references, role: 'assistant', responseType: type },
             ]);
 
             if (type === 'no_document') {
