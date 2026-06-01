@@ -35,6 +35,9 @@ export class ChatLog {
   @Column({ type: 'varchar', length: 10, nullable: true })
   role: 'user' | 'assistant';
 
+  @Column({ name: 'response_type', type: 'varchar', length: 20, nullable: true })
+  responseType: 'success' | 'out_of_scope' | 'no_document' | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
