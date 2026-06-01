@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between } from 'typeorm';
+import { Repository, DataSource, Between, In } from 'typeorm';
 import { UnansweredQuestion } from './entities/unanswered-question.entity';
 import { Feedback } from './entities/feedback.entity';
 import { ChatLog } from '../chat/entities/chat-log.entity';
@@ -54,9 +54,14 @@ export class AdminService {
         // 긍정 피드백 수
         this.feedbackRepo.count({ where: { rating: 'thumb_up', ...(period !== 'all' && { createdAt: Between(from, now) }) } }),
 
-        // 미답변 질문 수 (unresolved 상태)
-        this.unansweredRepo.count({ where: { status: 'unresolved', ...(period !== 'all' && { createdAt: Between(from, now) }) } }),
-
+        // 미답변 질문 수 (unresolved, out_of_scope)
+        this.chatLogRepo.count({ 
+          where: { 
+            role: 'assistant',
+            responseType: In(['out_of_scope', 'no_document']),
+            ...(period !== 'all' && { createdAt: Between(from, now) })
+          }
+        }),
         // 색인된 문서 수
         this.documentRepo.count({ where: { status: 'indexed', ...(period !== 'all' && { createdAt: Between(from, now) }) } }),
       ]);
@@ -323,7 +328,7 @@ export class AdminService {
       `SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date, 
       COUNT(*) AS success
       FROM chat_logs
-      WHERE role = 'user' AND created_at BETWEEN $1 AND $2
+      WHERE role = 'assistant' AND response_type = 'success' AND created_at BETWEEN $1 AND $2
       GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
       ORDER BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul') ASC`,
       [from, now],
@@ -332,8 +337,8 @@ export class AdminService {
     const failureRows = await this.dataSource.query(
       `SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date,
       COUNT(*) AS failure
-      FROM unanswered_questions
-      WHERE created_at BETWEEN $1 AND $2
+      FROM chat_logs
+      WHERE role = 'assistant' AND response_type IN ('out_of_scope', 'no_document') AND created_at BETWEEN $1 AND $2
       GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
       ORDER BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul') ASC`,
       [from, now],
