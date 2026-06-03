@@ -324,24 +324,28 @@ export class AdminService {
     else if (period === '30d') from.setDate(now.getDate() - 30);
     else from.setFullYear(2000);
 
+    const whereClause = period !== 'all'
+    ? `AND created_at BETWEEN '${from.toISOString()}' AND '${now.toISOString()}'`
+    : '';
+
     const successRows = await this.dataSource.query(
       `SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date, 
       COUNT(*) AS success
       FROM chat_logs
-      WHERE role = 'assistant' AND response_type = 'success' AND created_at BETWEEN $1 AND $2
+      WHERE role = 'assistant' AND response_type = 'success'
+      ${whereClause}
       GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
       ORDER BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul') ASC`,
-      [from, now],
     );
 
     const failureRows = await this.dataSource.query(
       `SELECT TO_CHAR(DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS date,
       COUNT(*) AS failure
       FROM chat_logs
-      WHERE role = 'assistant' AND response_type IN ('out_of_scope', 'no_document') AND created_at BETWEEN $1 AND $2
+      WHERE role = 'assistant' AND response_type IN ('out_of_scope', 'no_document')
+      ${whereClause}
       GROUP BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul')
       ORDER BY DATE_TRUNC('day', created_at AT TIME ZONE 'Asia/Seoul') ASC`,
-      [from, now],
     );
 
     const successMap = new Map<string, number>(successRows.map((r: any) => [String(r.date), Number(r.success)]));
